@@ -1,0 +1,5 @@
+/.claude/worktrees/
+/.claude/run-state/
+/daemon/.build/
+.DS_Store
+/plugin/.claude-plugin/types/

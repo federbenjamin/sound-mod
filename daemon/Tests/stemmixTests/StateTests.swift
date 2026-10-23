@@ -1,0 +1,35 @@
+import Foundation
+import XCTest
+
+@testable import stemmix
+
+final class StateTests: XCTestCase {
+  private let fixtures = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    .appendingPathComponent("contract")
+
+  func testContractFixturesDecode() throws {
+    let session = try JSONDecoder().decode(SessionFile.self, from: Data(contentsOf: fixtures.appendingPathComponent("session.json")))
+    XCTAssertEqual(session, SessionFile(working: true, updatedAt: 1_700_000_000_000))
+    let config = try JSONDecoder().decode(ConfigFile.self, from: Data(contentsOf: fixtures.appendingPathComponent("config.json")))
+    XCTAssertEqual(config, ConfigFile(tracks: 5, player: "spotify"))
+  }
+
+  func testSummarizeCountsLiveAndWorkingAndCutoffSchedule() {
+    let now = 10_000.0
+    let sessions = [
+      SessionFile(working: true, updatedAt: now - 1_000),
+      SessionFile(working: false, updatedAt: now - 2_000),
+      SessionFile(working: true, updatedAt: now - 7_000),
+    ]
+    XCTAssertEqual(summarize(sessions: sessions, nowMs: now, staleMs: 6_000), Counts(live: 2, working: 1))
+
+    XCTAssertNil(cutoffHz(working: 5, tracks: 5))
+    XCTAssertNil(cutoffHz(working: 9, tracks: 5))
+    let one = try! XCTUnwrap(cutoffHz(working: 1, tracks: 5))
+    let four = try! XCTUnwrap(cutoffHz(working: 4, tracks: 5))
+    XCTAssertGreaterThan(one, Config.cutoffFloorHz)
+    XCTAssertGreaterThan(four, one)
+    XCTAssertLessThan(four, Config.cutoffCeilingHz)
+  }
+}

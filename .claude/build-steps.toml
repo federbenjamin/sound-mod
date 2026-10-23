@@ -1,0 +1,5 @@
+# sound-mod's build steps: the global /build flow names a step, this file names the command.
+# Reader and fallbacks: ~/.agent-build/runtime/steps.ts (`node <it> .` prints the resolved table).
+checks      = "swift test --package-path daemon && claude plugin validate plugin && claude plugin test plugin"
+exit_checks = "swift test --package-path daemon && claude plugin validate plugin && claude plugin test plugin"
+tests       = "swift test --package-path daemon && claude plugin test plugin"

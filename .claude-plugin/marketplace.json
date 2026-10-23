@@ -1,0 +1,5 @@
+{
+  "name": "sound-mod",
+  "owner": { "name": "federbenjamin" },
+  "plugins": [{ "name": "stemmix", "source": "./plugin" }]
+}
