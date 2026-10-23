@@ -56,22 +56,18 @@ test('a main-loop turn marks working; a subagent turn changes nothing', async ($
 test('an ask verdict stops working until that tool call finishes', async ($, on) => {
   const { lastSession } = engine(on)
   on('turn.start', () => ({ turnId: 't1' }))
-  // Path used: $.tool.call with a test `tool.check` hook answering `ask`
-  // (the plugin's tool.check hook sees that verdict and the tool_use_id).
   on('tool.check', () => ({ decision: 'ask' }))
   on('classic.PermissionRequest', () => ({ decision: { behavior: 'allow' } }))
-  let during: boolean | undefined
-  on('tool.call', () => {
-    during = lastSession().working
-    return { result: {} }
-  })
+  on('tool.call', () => ({ result: {} }))
   await $.session.start(START)
   await $.turn.start({ text: 'go' })
   expect(lastSession().working).toBe(true)
 
-  await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'tu-1' })
+  // The ask itself is raised as a real main-loop call a person answers.
+  await $.tool.check({ tool: 'Bash', input: { command: 'ls' }, tool_use_id: 'tu-1', approver: 'person' })
+  expect(lastSession().working).toBe(false)
 
-  expect(during).toBe(false)
+  await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'tu-1' })
   expect(lastSession().working).toBe(true)
   await $.session.end({})
 })
