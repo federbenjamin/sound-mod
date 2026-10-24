@@ -6,21 +6,21 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/federbenjamin/sound-mod" alt="License"></a>
 </p>
 
-A song from Spotify or Apple Music plays as 4 instrument stems: drums, bass, other, vocals. With k sessions working out of N you hear the first ceil(4k/N) of them: one session is just the drums, N sessions is the whole song, zero is silence. When sessions finish and hand back to you, the room goes quiet without you looking. It runs on macOS, for anyone who keeps several [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) sessions or [herdr](https://herdr.dev) agent panes going at once.
+A song from Spotify or Apple Music plays as 4 instrument stems: drums, bass, other, vocals. With k sessions working out of N you hear the first ceil(4k/N) of them: one session is just the drums, N sessions is the whole song, zero is silence. When sessions finish and hand back to you, the room goes quiet without you looking. It runs on macOS, for anyone who keeps several [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) sessions or [herdr](https://herdr.dev) agent panes going at once. stemmix is the tool; `sound-mod` is the repository that holds it.
 
 ## Install
 
-Needs macOS, `uv`, and Xcode's command line tools.
+Needs macOS, `uv`, and Xcode's command line tools. An Apple Development signing identity in the keychain keeps the audio permission across rebuilds; without one the daemon is signed ad hoc and macOS asks again after every rebuild.
 
 ```
 ./install.sh
 ```
 
-Builds the separator's Python environment in `~/.local/share/stemmix/venv` and runs its self-test (the first run downloads the model weights to `~/.cache/demucs-mlx`), builds and signs the daemon with the Apple Development identity in the keychain, and installs the launchd agent.
+Builds the separator's Python environment in `~/.local/share/stemmix/venv` and runs its self-test (the first run downloads the model weights to `~/.cache/demucs-mlx`), builds and signs the daemon as `~/Applications/Stemmix.app`, and installs the launchd agent, which starts it now and at every login.
 
 Then install one session source:
 
-- Claude Code: add this repo as a plugin marketplace and enable `stemmix@sound-mod` (`/plugin marketplace add <path or owner/repo>`, then `/plugin install stemmix@sound-mod`). Settings, in `/config`: `tracks` (N, default 4) and `player` (`spotify` or `music`).
+- Claude Code: add this repo as a plugin marketplace and enable `stemmix@sound-mod` (`/plugin marketplace add <path or owner/repo>`, then `/plugin install stemmix@sound-mod`). Settings, in `/config`: `tracks` (N, the number of working sessions at which you hear the whole song; default 4) and `player` (`spotify` or `music`).
 - herdr: `herdr plugin link <this repo>/herdr-plugin` (or `herdr plugin install <owner>/sound-mod/herdr-plugin` from GitHub). herdr starts it with its server; to start it now, `herdr plugin action invoke restart --plugin stemmix`. Settings: `tracks = 4` and `player = "spotify"` in `config.toml` in the folder `herdr plugin config-dir stemmix` prints. Needs macOS's own `/usr/bin/python3` (Xcode Command Line Tools).
 
 The first time a session works while music plays, macOS needs Stemmix allowed under System Settings > Privacy & Security > Screen & System Audio Recording > **System Audio Recording Only**. The daemon never taps without it, so it never raises the prompt itself; nothing else can grant it (not SSH, not a terminal-launched binary: TCC attributes those to the terminal).
@@ -35,7 +35,7 @@ The first time a session works while music plays, macOS needs Stemmix allowed un
 
 ## Usage
 
-While attached, the daemon is the system's Now Playing app, so the keyboard's media keys, Control Center and headphone buttons reach it: play/pause, next (the next song already in the buffer, else back to live), previous (the start of this song, or the one before within its first 3 s). Pausing or playing in Spotify itself does the same to the daemon at once.
+While attached, the daemon is the system's Now Playing app, so the keyboard's media keys, Control Center and headphone buttons reach it (whether they do so while Spotify also plays is still unchecked; see Known limits): play/pause, next (the next song already in the buffer, else back to live), previous (the start of this song, or the one before within its first 3 s). Pausing or playing in Spotify itself does the same to the daemon at once.
 
 From a terminal or a hotkey tool:
 
