@@ -12,9 +12,30 @@ final class Daemon {
   private var lastSessions: [String: Bool] = [:]
   private var lastLiveAt = Date.distantPast
   private var nextAttachAt = Date.distantPast
+  private var nextLevelAt = Date.distantPast
+  private var silentSince: Date?
+  private var lastPermission: CapturePermission?
+
+  private var signalSources: [DispatchSourceSignal] = []
 
   func run() {
+    guard Self.takeInstanceLock() else {
+      Log.line("start refused pid=\(ProcessInfo.processInfo.processIdentifier): another stemmix daemon holds the lock")
+      exit(0)
+    }
     Log.line("start pid=\(ProcessInfo.processInfo.processIdentifier)")
+    for sig in [SIGTERM, SIGINT, SIGHUP] {
+      signal(sig, SIG_IGN)
+      let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+      source.setEventHandler { [self] in
+        Log.line("signal \(sig): detaching before exit")
+        tap?.stop(wait: Config.exitTeardownWait)
+        tap = nil
+        exit(0)
+      }
+      source.resume()
+      signalSources.append(source)
+    }
     let timer = Timer(timeInterval: Config.pollInterval, repeats: true) { [self] _ in tick() }
     RunLoop.main.add(timer, forMode: .common)
     RunLoop.main.run()
@@ -41,6 +62,23 @@ final class Daemon {
     }
 
     guard let mixer else { return }
+    if now >= nextLevelAt {
+      let level = mixer.takeLevel()
+      Log.line("level in=\(level.rmsDb.map { String(format: "%.1fdBFS", $0) } ?? "none") samples=\(level.samples)")
+      nextLevelAt = now.addingTimeInterval(Config.levelInterval)
+      // A tap that delivers no samples at all while the player outputs is dead (a coreaudiod restart, a stale
+      // aggregate): rebuild it rather than sit on it.
+      if level.samples == 0, isOutputting(targets) {
+        silentSince = silentSince ?? now
+        if now.timeIntervalSince(silentSince!) >= Config.deadTapAfter {
+          silentSince = nil
+          detach(reason: "no-samples")
+          return
+        }
+      } else {
+        silentSince = nil
+      }
+    }
     let k = min(counts.working, config.tracks)
     let target = Target(cutoffHz: k > 0 ? cutoffHz(working: k, tracks: config.tracks) : Config.cutoffFloorHz, gain: k > 0 ? 1 : 0)
     if target != lastTarget || counts != lastCounts {
@@ -53,6 +91,17 @@ final class Daemon {
   }
 
   private func attach(targets: [AudioObjectID], output: OutputDevice, player: String) {
+    // Never let coreaudiod ask TCC on our behalf: an unanswered System Audio Recording prompt leaves coreaudiod
+    // blocked on every later tap until it restarts. Taps are made only once the permission is already granted.
+    let permission = capturePermission()
+    if permission != lastPermission {
+      Log.line("permission \(permission.rawValue)")
+      lastPermission = permission
+    }
+    guard permission == .authorized else {
+      nextAttachAt = Date().addingTimeInterval(Config.permissionRecheck)
+      return
+    }
     do {
       let tap = try ProcessTap(targets: targets, output: output)
       let mixer = Mixer(tapFormat: tap.tapFormat)
@@ -68,7 +117,16 @@ final class Daemon {
     }
   }
 
+  /// One daemon per user: a second copy (a Finder double-click on the app) would tap the player a second time.
+  /// The lock is held for the process's life and released by the kernel when it exits.
+  private static func takeInstanceLock() -> Bool {
+    try? FileManager.default.createDirectory(at: Config.stateDir, withIntermediateDirectories: true)
+    let fd = open(Config.lockFile.path, O_RDWR | O_CREAT, 0o644)
+    return fd >= 0 && flock(fd, LOCK_EX | LOCK_NB) == 0
+  }
+
   private func detach(reason: String) {
+    silentSince = nil
     tap?.stop()
     tap = nil
     mixer = nil
@@ -91,6 +149,11 @@ final class Daemon {
 @main
 enum Main {
   static func main() {
-    Daemon().run()
+    let arguments = Array(CommandLine.arguments.dropFirst())
+    switch arguments.first {
+    case "--probe": exit(runProbe(Array(arguments.dropFirst())))
+    case "--request": exit(runRequest())
+    default: Daemon().run()
+    }
   }
 }
