@@ -8,9 +8,8 @@
 
 ## Project state
 
-- 2026-10-23: not launched; a personal tool, one user, no real data beyond local state files. Retires when the repo is shared.
-- 2026-10-23: the daemon's System Audio Recording grant is given on this Mac (Apple Development signing, so it survives rebuilds). Never run a tap from any other identity or before `capturePermission()` says authorized: an unanswered prompt wedges coreaudiod until `sudo killall coreaudiod`. Retires when the repo is shared.
-- 2026-10-23: no git remote; branches are local. Retires when the GitHub repo exists.
+- 2026-10-24: not launched; no release yet. The author is the one user, running it on their own Mac; no real data beyond local state files. Retires at the first version tag.
+- 2026-10-23: the daemon's System Audio Recording grant is given on the author's Mac (Apple Development signing, so it survives rebuilds). Never run a tap from any other identity or before `capturePermission()` says authorized: an unanswered prompt wedges coreaudiod until `sudo killall coreaudiod`. Retires when the install grants the permission itself without that risk.
 
 ## Layout
 
