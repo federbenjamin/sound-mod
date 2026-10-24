@@ -82,3 +82,15 @@ test('session.end writes working false even mid-turn', async ($, on) => {
   await $.session.end({})
   expect(lastSession().working).toBe(false)
 })
+
+test('a session that enabled the plugin mid-way reports from its first turn', async ($, on) => {
+  const { writes, lastSession } = engine(on)
+  on('turn.start', () => ({ turnId: 't1' }))
+
+  await $.turn.start({ text: 'go' })
+
+  expect(writes.some(w => w.path === '/home/test/.local/state/stemmix/config.json')).toBe(true)
+  expect(lastSession().working).toBe(true)
+  await $.session.end({})
+  expect(lastSession().working).toBe(false)
+})

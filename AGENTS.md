@@ -9,11 +9,14 @@
 ## Project state
 
 - 2026-10-23: not launched; a personal tool, one user, no real data beyond local state files. Retires when the repo is shared.
-- 2026-10-23: the daemon's System Audio Recording grant has not been clicked yet on this Mac. Retires once `~/.local/state/stemmix/stemmix.log` shows an `attach` followed by a `count … gain=1` with audible output.
+- 2026-10-23: the daemon's System Audio Recording grant is given on this Mac (Apple Development signing, so it survives rebuilds). Never run a tap from any other identity or before `capturePermission()` says authorized: an unanswered prompt wedges coreaudiod until `sudo killall coreaudiod`. Retires when the repo is shared.
+- 2026-10-23: no git remote; branches are local. Retires when the GitHub repo exists.
 
 ## Layout
 
-- `daemon/`: Swift package; `Daemon.swift` orchestrates, `State.swift`/`Cutoff.swift`/`Filter.swift` are pure and tested, `Audio.swift` and `Mixer.swift` touch Core Audio.
+- `daemon/`: Swift package. `Daemon.swift` orchestrates; `Playback.swift` owns one attach's audio and is the one entry for transport commands; `Timeline.swift` (rings), `Player.swift` (the IO thread), `SeparationWorker.swift` + `Separator.swift` (the separator process). Pure and tested: `State.swift`, `Stems.swift`, `Schedule.swift`, `Transport.swift`, `SeparatorProtocol.swift`. `Audio.swift` touches Core Audio. `Simulate.swift` runs everything but Core Audio offline.
+- `separator/`: the Python HTDemucs separator (`uv` project); tests in `separator/test_separator.py`.
+- `docs/design/stem-player.md`: the design and its choices.
 - `plugin/`: the Claude Code hooks module; tests in `plugin/hooks/*.test.ts` run with `claude plugin test plugin`.
-- `contract/`: the state-file shapes and the fixtures both sides decode.
+- `contract/`: the state-file shapes, the separator pipe protocol, and the fixtures every side decodes.
 - `install.sh`: the one install command (README §Install).

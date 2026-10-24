@@ -12,7 +12,7 @@ final class StateTests: XCTestCase {
     let session = try JSONDecoder().decode(SessionFile.self, from: Data(contentsOf: fixtures.appendingPathComponent("session.json")))
     XCTAssertEqual(session, SessionFile(working: true, updatedAt: 1_700_000_000_000))
     let config = try JSONDecoder().decode(ConfigFile.self, from: Data(contentsOf: fixtures.appendingPathComponent("config.json")))
-    XCTAssertEqual(config, ConfigFile(tracks: 5, player: "spotify"))
+    XCTAssertEqual(config, ConfigFile(tracks: 4, player: "spotify"))
   }
 
   func testSummarizeCountsLiveAndWorkingAndStemSchedule() {

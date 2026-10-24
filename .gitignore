@@ -3,3 +3,5 @@
 /daemon/.build/
 .DS_Store
 /plugin/.claude-plugin/types/
+__pycache__/
+.pytest_cache/
