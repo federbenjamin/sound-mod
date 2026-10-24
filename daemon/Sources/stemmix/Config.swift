@@ -67,4 +67,11 @@ enum Config {
   static let previousRestartSeconds = 3.0
 
   static let controlNotification = Notification.Name("com.benjaminfeder.stemmix.control")
+
+  // The Darwin notification mediaremoted posts on every move of the Now Playing slot (the media keys).
+  static let nowPlayingPathChanged = "com.apple.MediaRemote.activePlayerPathDidChange"
+  // A slot move this soon after stemmix's own set into Playing is stemmix's own.
+  static let nowPlayingChangeWindow: TimeInterval = 1
+  // At most one retake of a lost slot this often, so an app that also retakes on loss cannot loop with us.
+  static let nowPlayingRetakeCooldown: TimeInterval = 30
 }

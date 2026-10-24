@@ -127,12 +127,13 @@ final class Daemon {
       lastCounts = counts
     }
     let song = playback.currentSong
-    let playing = playback.playing
+    let playing = playback.intendsPlaying
     if song != lastSong || playing != lastPlaying {
       nowPlaying?.update(title: song?.title, artist: song?.artist, playing: playing)
       lastSong = song
       lastPlaying = playing
     }
+    nowPlaying?.settle(playing: playing)
   }
 
   private func attach(targets: [AudioObjectID], output: OutputDevice, player: String) {
@@ -149,7 +150,7 @@ final class Daemon {
       lastCutoff = nil
       lastSong = nil
       lastPlaying = nil
-      nowPlaying?.claim()
+      nowPlaying?.claim(playing: playback.intendsPlaying)
       let formats = tap.outputStreamFormats().map { "\(Int($0.mSampleRate))Hz/\($0.mChannelsPerFrame)ch/\($0.mBitsPerChannel)bit" }.joined(separator: ",")
       Log.line("attach player=\(player) objects=\(targets) tap=\(Int(tap.tapFormat.mSampleRate))Hz/\(tap.tapFormat.mChannelsPerFrame)ch output=\(output.uid) streams=\(formats)")
     } catch let CoreAudioError.notAuthorized(permission) {
@@ -172,8 +173,12 @@ final class Daemon {
     observedPlayer = player
     guard let name = playerNotifications[player] else { return }
     playerObserver = DistributedNotificationCenter.default().addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] note in
-      guard let event = parsePlayerEvent(note.userInfo ?? [:]) else { return }
-      self?.playback?.handle(event, now: Date().timeIntervalSince1970)
+      guard let self, let playback = self.playback, let event = parsePlayerEvent(note.userInfo ?? [:]) else { return }
+      // After handle, so the intent already holds the follower's play; Spotify's notification comes after its
+      // own change into Playing, so this pulse lands last.
+      if playback.handle(event, now: Date().timeIntervalSince1970).startedPlaying {
+        self.nowPlaying?.retake(playing: playback.intendsPlaying, reason: "player-started")
+      }
     }
   }
 

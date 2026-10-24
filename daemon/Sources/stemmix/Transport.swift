@@ -94,6 +94,8 @@ struct PlayerFollower {
   struct Reaction: Equatable {
     var action: TransportAction = .none
     var mark: TrackMark?
+    /// The player changed into Playing with this event: from paused, stopped, or no event seen yet.
+    var startedPlaying = false
   }
 
   mutating func handle(_ event: PlayerEvent, now: TimeInterval, head: Int, behindLive: Bool) -> Reaction {
@@ -103,6 +105,7 @@ struct PlayerFollower {
     } else if event.state == .playing, lastState == .paused || lastState == .stopped {
       reaction.action = .play
     }
+    reaction.startedPlaying = event.state == .playing && lastState != .playing
     lastState = event.state
 
     if let id = event.trackID, id != trackID {

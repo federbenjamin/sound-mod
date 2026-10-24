@@ -9,6 +9,9 @@ final class Playback {
   private let worker: SeparationWorker
   private var follower = PlayerFollower()
   private(set) var marks: [TrackMark] = []
+  /// The last play or pause this playback sent; the IO thread applies it a cycle later, or never when its
+  /// proc is dead. The truth for toggle and Now Playing.
+  private(set) var intendsPlaying = true
 
   init(rate: Int) {
     timeline = Timeline(rate: rate, recordingSeconds: Config.recordingSeconds, stemsSeconds: Config.stemsSeconds)
@@ -26,27 +29,29 @@ final class Playback {
   func start() { worker.start() }
   func stop() { worker.stop() }
 
-  var playing: Bool { player.playing.load(ordering: .relaxed) }
+  private var playing: Bool { player.playing.load(ordering: .relaxed) }
 
   @discardableResult
   func handle(_ command: TransportCommand, source: String) -> TransportAction {
     let head = timeline.head.load(ordering: .acquiring)
     let cursor = timeline.cursor.load(ordering: .acquiring)
-    let action = resolve(command, cursor: cursor, head: head, playing: playing, marks: keptMarks(head: head), rate: timeline.rate, liveLag: player.shape.liveLag)
-    player.send(action)
+    let action = resolve(command, cursor: cursor, head: head, playing: intendsPlaying, marks: keptMarks(head: head), rate: timeline.rate, liveLag: player.shape.liveLag)
+    send(action)
     Log.line("transport source=\(source) command=\(command.rawValue) action=\(describe(action)) behind=\(seconds(head - cursor))")
     return action
   }
 
-  func handle(_ event: PlayerEvent, now: TimeInterval) {
+  @discardableResult
+  func handle(_ event: PlayerEvent, now: TimeInterval) -> PlayerFollower.Reaction {
     let head = timeline.head.load(ordering: .acquiring)
     let cursor = timeline.cursor.load(ordering: .acquiring)
     let behindLive = head - cursor > player.shape.liveLag + timeline.rate
     let reaction = follower.handle(event, now: now, head: head, behindLive: behindLive)
     if let mark = reaction.mark { marks.append(mark) }
     marks = keptMarks(head: head)
-    player.send(reaction.action)
+    send(reaction.action)
     Log.line("player-event state=\(event.state.rawValue) track=\(event.trackID ?? "-") mark=\(reaction.mark.map { String($0.frame) } ?? "-") action=\(describe(reaction.action))")
+    return reaction
   }
 
   func setAudible(_ count: Int) { player.audible.store(count, ordering: .relaxed) }
@@ -80,6 +85,15 @@ final class Playback {
     let oldest = timeline.oldestRecorded(head: head)
     guard let firstKept = marks.firstIndex(where: { $0.frame >= oldest }) else { return marks.suffix(1) }
     return Array(marks[max(firstKept - 1, 0)...])
+  }
+
+  private func send(_ action: TransportAction) {
+    switch action {
+    case .play: intendsPlaying = true
+    case .pause: intendsPlaying = false
+    case .none, .seek: break
+    }
+    player.send(action)
   }
 
   private func seconds(_ frames: Int) -> String { String(format: "%.2fs", Double(frames) / Double(timeline.rate)) }
