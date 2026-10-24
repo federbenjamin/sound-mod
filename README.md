@@ -31,14 +31,15 @@ The first time a session works while music plays, macOS needs Stemmix allowed un
 
 - **One more instrument for each working session.** The song you already have playing comes through as drums, bass, other and vocals, and the count of working sessions decides how many of them you hear.
 - **Pause that lands at once.** Pause stops the sound immediately while the music keeps being recorded, so play resumes where you paused. Next and previous move between the songs in the buffer.
-- **Media keys, Control Center and headphone buttons.** While attached, the daemon is the system's Now Playing app, and pausing or playing in Spotify itself does the same to the daemon. Known limits below lists what is still unchecked.
+- **Media keys, Control Center and headphone buttons.** While attached, the keys, Control Center and headphone buttons reach the daemon, and when Spotify starts playing the daemon takes them straight back. Pausing or playing in Spotify itself does the same to the daemon.
+- **A menu bar icon.** It shows whether the daemon is detached (dimmed), playing or paused; its menu names the song, how far behind live it plays or why it is not attached, the working sessions, the stems you hear, and who holds the media keys. Play/Pause, Next, Previous and Back to live are there too, with Open log, Restart Stemmix and Quit Stemmix.
 - **Two session sources.** A Claude Code plugin counts Claude Code sessions in any terminal; a herdr plugin counts every top-level agent pane herdr shows as working, on this Mac and on the machines saved in herdr.
 - **Thin the song your way.** Take instruments away as fewer sessions work (the default), or keep every instrument and muffle the sound like through a wall, or both at once. How muffled it gets at the quietest end is a 0 to 10 setting.
 - **Nothing to switch off.** While no session is open at all, the tap is released and the player sounds normal. With sessions open but none working, you hear silence while the music keeps playing underneath.
 
 ## Usage
 
-Play something in Spotify (or Music) and open a session; the daemon attaches while a session is open and the player is running, and lets go a minute after the last one closes. While attached, the daemon is the system's Now Playing app, so the keyboard's media keys, Control Center and headphone buttons reach it (whether they do so while Spotify also plays is still unchecked; see Known limits): play/pause, next (the next song already in the buffer, else back to live), previous (the start of this song, or the one before within its first 3 s). Pausing or playing in Spotify itself does the same to the daemon at once.
+Play something in Spotify (or Music) and open a session; the daemon attaches while a session is open and the player is running, and lets go a minute after the last one closes. While attached, the daemon is the system's Now Playing app, so the keyboard's media keys, Control Center and headphone buttons reach it, and when Spotify starts playing the daemon takes them straight back: play/pause, next (the next song already in the buffer, else back to live), previous (the start of this song, or the one before within its first 3 s). Pausing or playing in Spotify itself does the same to the daemon at once. The menu bar icon is a dimmed waveform while detached, a waveform while playing and a pause symbol while paused. Its menu has the same commands, greyed when they would do nothing, plus Open log, Restart Stemmix (the agent starts again at once) and Quit Stemmix, which stops the agent until the next login or `./install.sh`.
 
 From a terminal or a hotkey tool:
 
@@ -52,7 +53,7 @@ From a terminal or a hotkey tool:
 tail -f ~/.local/state/stemmix/stemmix.log
 ```
 
-One line per event: `start`, `attach`, `detach reason=…`, `count working=… mode=… stems=… muffle=…`, `transport source=… command=… action=…`, `player-event …` (the player's own play state and track changes), `separator ready|start-failed|request-failed`, and every 10 s a `level` line: input and output level, `state`, `behind` (how far the cursor plays behind the recording), `separated-ahead`, `waited` (silence while stems were not ready), and the separator's median time per window. The separator's own output: `separator.log` beside it. The herdr plugin logs to `herdr-bridge.log` beside it: one line per change in the working count.
+One line per event: `start`, `attach`, `detach reason=…`, `count working=… mode=… stems=… muffle=…`, `transport source=media-key|control|menu command=… action=…`, `now-playing claimed|retaken|held|lost|released` (the media keys), `player-event …` (the player's own play state and track changes), `separator ready|start-failed|request-failed`, and every 10 s a `level` line: input and output level, `state`, `behind` (how far the cursor plays behind the recording), `separated-ahead`, `waited` (silence while stems were not ready), and the separator's median time per window. The separator's own output: `separator.log` beside it. The herdr plugin logs to `herdr-bridge.log` beside it: one line per change in the working count.
 
 ## Configuration
 
@@ -83,7 +84,7 @@ The daemon and the session sources meet in `~/.local/state/stemmix/`; the daemon
 ### Known limits
 
 - "Next" at the live edge cannot skip the song in Spotify: that needs the Automation permission, not built.
-- Whether macOS hands the media keys to the daemon while Spotify also plays has not been checked by hand yet. If it does not, the keys go to Spotify, and following Spotify's own pause still stops the sound at once.
+- When another app (a browser video) takes the media keys, the daemon takes them back at most once every 30 s, so a second take inside that time leaves them with that app until stemmix or Spotify next starts playing. The menu's Media keys line is the daemon's belief: macOS does not say who holds them. A play key while Spotify itself is paused plays only what stemmix has buffered.
 - The music keeps playing silently at zero working sessions; it is not paused.
 - Apple Music streamed (FairPlay) tracks and its track notifications were not verified here.
 - The music comes out of the Mac the daemon runs on. The Claude Code plugin counts sessions on that Mac only; the herdr plugin also counts the saved machines herdr can reach, with a second or two of lag for those.
