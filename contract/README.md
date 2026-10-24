@@ -4,8 +4,10 @@ A session source writes, the daemon reads. The two sources, `claude-plugin/` and
 
 | File | Shape | Written by | Read by |
 | --- | --- | --- | --- |
-| `config.json` | `{ "tracks": <integer N, default 4>, "player": "spotify" \| "music" }` | the session source on start and on change | the daemon every tick |
+| `config.json` | `{ "tracks": <integer N, default 4>, "player": "spotify" \| "music", "mode": "instruments" \| "muffled" \| "both" (default instruments), "muffling_max": <0...10, default 7>, "muffling_min": <0...10, default 0> }` | the session source on start and on change | the daemon every tick |
 | `sessions/<session id>.json` | `{ "working": <bool>, "updatedAt": <ms since epoch> }` | the session source on every state change and every 2 s | the daemon every tick |
+
+A key missing from `config.json` takes its default, so a source that writes only `tracks` and `player` still drives the daemon. `mode` says how the song thins with fewer working sessions: `instruments` takes stems away, `muffled` keeps every stem and low-passes the mix, `both` does both. `muffling_max` is the muffling (0 none, 10 most) with no session working and `muffling_min` with `tracks` sessions working; between them it runs in a straight line.
 
 A session file older than 6 s is dead. `working` is true while the session's main turn runs and no dialog waits on the person.
 

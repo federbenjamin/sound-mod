@@ -26,7 +26,8 @@ PLUGIN_ID = "stemmix"
 HEARTBEAT_SECS = 2  # the daemon treats a session file older than 6 s as gone
 MAX_FAILS = 30  # herdr unreachable this many beats in a row: the server is gone, so stop
 WAKE_EVENTS = ["pane.agent_status_changed", "pane.agent_detected", "pane.closed", "pane.exited"]
-DEFAULTS = {"tracks": 4, "player": "spotify"}
+DEFAULTS = {"tracks": 4, "player": "spotify", "mode": "instruments", "muffling_max": 7, "muffling_min": 0}
+NUMBER_KEYS = {"tracks": int, "muffling_max": float, "muffling_min": float}
 
 wake = threading.Event()
 
@@ -47,15 +48,19 @@ def sessions_from_agents(agents):
 
 
 def read_config(path):
-    """tracks and player from the plugin's config.toml (one-line `key = value`; Python 3.9 has no tomllib)."""
+    """The settings from the plugin's config.toml (one-line `key = value`; Python 3.9 has no tomllib): tracks,
+    player, mode, muffling_max, muffling_min; a key left out keeps its default."""
     config = dict(DEFAULTS)
     try:
         with open(path) as f:
             for line in f:
-                m = re.fullmatch(r'\s*(tracks|player)\s*=\s*(\d+|"[^"]*")\s*(#.*)?', line.rstrip("\n"))
+                m = re.fullmatch(r'\s*(tracks|player|mode|muffling_max|muffling_min)\s*=\s*(\d+(?:\.\d+)?|"[^"]*")\s*(#.*)?', line.rstrip("\n"))
                 if m:
                     key, raw = m.group(1), m.group(2)
-                    config[key] = int(raw) if key == "tracks" else raw.strip('"')
+                    if key in NUMBER_KEYS and not raw.startswith('"'):
+                        config[key] = NUMBER_KEYS[key](raw)
+                    elif key not in NUMBER_KEYS and raw.startswith('"'):
+                        config[key] = raw.strip('"')
     except OSError:
         pass
     return config

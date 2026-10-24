@@ -21,6 +21,15 @@ enum Config {
 
   static let defaultTracks = 4
   static let defaultPlayer = "spotify"
+  static let defaultMode = ListeningMode.instruments
+  // Muffling 0...10 at no working session (max) and at `tracks` working sessions (min), log-spaced between the
+  // ceiling (0: no filter) and the floor (10).
+  static let defaultMufflingMax = 7.0
+  static let defaultMufflingMin = 0.0
+  static let mufflingFloorHz = 150.0
+  static let mufflingCeilingHz = 20_000.0
+  // How fast the cutoff glides to a new target.
+  static let mufflingGlideSeconds = 0.1
   static let playerBundlePrefixes: [String: String] = [
     "spotify": "com.spotify",
     "music": "com.apple.Music",

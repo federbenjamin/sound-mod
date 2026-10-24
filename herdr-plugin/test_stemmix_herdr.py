@@ -37,6 +37,20 @@ class BridgeTests(unittest.TestCase):
             with open(os.path.join(d, "a.json")) as f:
                 self.assertEqual(json.load(f), {"working": False, "updatedAt": 3000})
 
+    def test_read_config_takes_every_setting_and_defaults_the_rest(self):
+        with open(os.path.join(CONTRACT, "config.json")) as f:
+            contract_keys = set(json.load(f))
+        with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as f:
+            f.write('tracks = 6\nmode = "both"  # comment\nmuffling_max = 5.5\nplayer = 7\n')
+            path = f.name
+        try:
+            config = bridge.read_config(path)
+        finally:
+            os.remove(path)
+
+        self.assertEqual(set(config), contract_keys)
+        self.assertEqual(config, {"tracks": 6, "player": "spotify", "mode": "both", "muffling_max": 5.5, "muffling_min": 0})
+
 
 if __name__ == "__main__":
     unittest.main()

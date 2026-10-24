@@ -29,7 +29,7 @@ test('session.start writes config.json and an idle session file', { options: { t
   await $.session.start(START)
 
   const config = writes.find(w => w.path === '/home/test/.local/state/stemmix/config.json')
-  expect(JSON.parse(config!.text)).toEqual({ tracks: 3, player: 'music' })
+  expect(JSON.parse(config!.text)).toEqual({ tracks: 3, player: 'music', mode: 'instruments', muffling_max: 7, muffling_min: 0 })
   expect(lastSession()).toEqual({ working: false, updatedAt: 1000 })
   await $.session.end({})
 })

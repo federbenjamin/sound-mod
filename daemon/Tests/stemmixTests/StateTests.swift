@@ -15,6 +15,18 @@ final class StateTests: XCTestCase {
     XCTAssertEqual(config, ConfigFile(tracks: 4, player: "spotify"))
   }
 
+  func testContractConfigFixtureCarriesTheListeningKnobs() throws {
+    let config = try JSONDecoder().decode(ConfigFile.self, from: Data(contentsOf: fixtures.appendingPathComponent("config.json")))
+    XCTAssertEqual(config, ConfigFile(tracks: 4, player: "spotify", mode: .instruments, mufflingMax: 7, mufflingMin: 0))
+  }
+
+  func testConfigWithoutTheNewKeysTakesTheirDefaults() throws {
+    let old = try JSONDecoder().decode(ConfigFile.self, from: Data(#"{"tracks": 3, "player": "music"}"#.utf8))
+    XCTAssertEqual(old, ConfigFile(tracks: 3, player: "music", mode: .instruments, mufflingMax: 7, mufflingMin: 0))
+    let modeOnly = try JSONDecoder().decode(ConfigFile.self, from: Data(#"{"mode": "both"}"#.utf8))
+    XCTAssertEqual(modeOnly, ConfigFile(tracks: 4, player: "spotify", mode: .both, mufflingMax: 7, mufflingMin: 0))
+  }
+
   func testSummarizeCountsLiveAndWorkingAndStemSchedule() {
     let now = 10_000.0
     let sessions = [
