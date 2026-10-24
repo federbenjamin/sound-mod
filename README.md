@@ -6,6 +6,8 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/federbenjamin/sound-mod" alt="License"></a>
 </p>
 
+<p align="center"><img src="docs/media/hero.png" alt="Four columns of drums, bass, other and vocals waveforms: drums light up when a quarter of your agents are working, then bass at half, other at three quarters, and vocals when all are working." width="720"></p>
+
 A song from Spotify or Apple Music plays as 4 instrument stems: drums, bass, other, vocals. With k sessions working out of N you hear the first ceil(4k/N) of them: one session is just the drums, N sessions is the whole song, zero is silence. When sessions finish and hand back to you, the room goes quiet without you looking. It runs on macOS, for anyone who keeps several [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) sessions or [herdr](https://herdr.dev) agent panes going at once. stemmix is the tool; `sound-mod` is the repository that holds it.
 
 ## Install
@@ -63,7 +65,7 @@ Three parts, and you pick the third:
 
   Install one. Both write the same session files, keyed by the agent's session id where herdr knows it, so a Claude session reported by both is still one session.
 
-The daemon and the session sources meet in `~/.local/state/stemmix/`; the daemon and the separator meet on a pipe. Both shapes are in `contract/README.md`. The design and its trade-offs: `docs/design/stem-player.md`.
+The daemon and the session sources meet in `~/.local/state/stemmix/`; the daemon and the separator meet on a pipe. Both shapes are in `contract/README.md`. The design and its trade-offs: `docs/design/stem-player.md`. The picture at the top is drawn by `docs/media/hero.sh` from four stem recordings.
 
 ### Known limits
 
