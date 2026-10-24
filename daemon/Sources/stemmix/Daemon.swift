@@ -153,6 +153,7 @@ enum Main {
     switch arguments.first {
     case "--probe": exit(runProbe(Array(arguments.dropFirst())))
     case "--request": exit(runRequest())
+    case "--record": exit(runRecord(Array(arguments.dropFirst())))
     default: Daemon().run()
     }
   }
