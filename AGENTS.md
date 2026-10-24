@@ -17,6 +17,8 @@
 - `daemon/`: Swift package. `Daemon.swift` orchestrates; `Playback.swift` owns one attach's audio and is the one entry for transport commands; `Timeline.swift` (rings), `Player.swift` (the IO thread), `SeparationWorker.swift` + `Separator.swift` (the separator process). Pure and tested: `State.swift`, `Stems.swift`, `Schedule.swift`, `Transport.swift`, `SeparatorProtocol.swift`. `Audio.swift` touches Core Audio. `Simulate.swift` runs everything but Core Audio offline.
 - `separator/`: the Python HTDemucs separator (`uv` project); tests in `separator/test_separator.py`.
 - `docs/design/stem-player.md`: the design and its choices.
-- `plugin/`: the Claude Code hooks module; tests in `plugin/hooks/*.test.ts` run with `claude plugin test plugin`.
+- Session sources, two interchangeable writers of the same session files (`contract/README.md`):
+  - `claude-plugin/`: the Claude Code hooks module; tests in `claude-plugin/hooks/*.test.ts` run with `claude plugin test claude-plugin`.
+  - `herdr-plugin/`: the herdr plugin, a bridge from herdr's agent states (system Python 3.9, standard library only); tests run with `/usr/bin/python3 -m unittest discover -s herdr-plugin`.
 - `contract/`: the state-file shapes, the separator pipe protocol, and the fixtures every side decodes.
 - `install.sh`: the one install command (README §Install).

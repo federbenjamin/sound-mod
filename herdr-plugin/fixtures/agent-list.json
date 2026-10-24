@@ -1,0 +1,6 @@
+{"id":"stemmix","result":{"type":"agent_list","agents":[
+{"agent":"claude","agent_session":{"agent":"claude","kind":"id","source":"herdr:claude","value":"0b8c6a3e-1f2d-4c5b-9a7e-2d3f4a5b6c7d"},"agent_status":"working","cwd":"/home/user/project","pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1"},
+{"agent":"claude","agent_session":{"agent":"claude","kind":"id","source":"herdr:claude","value":"5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b"},"agent_status":"blocked","cwd":"/home/user/project","pane_id":"w1:p2","tab_id":"w1:t2","workspace_id":"w1"},
+{"agent":"codex","agent_status":"working","cwd":"/home/user/other","pane_id":"w2:p1","tab_id":"w2:t1","workspace_id":"w2"},
+{"agent":"claude","agent_session":{"agent":"claude","kind":"id","source":"herdr:claude","value":"9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"},"agent_status":"done","cwd":"/home/user/project","pane_id":"w2:p2","tab_id":"w2:t2","workspace_id":"w2"}
+]}}

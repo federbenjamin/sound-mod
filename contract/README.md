@@ -1,15 +1,15 @@
-# The state contract between the plugin and the daemon
+# The state contract between the session sources and the daemon
 
-The plugin writes, the daemon reads. All paths are under `~/.local/state/stemmix/`.
+A session source writes, the daemon reads. The two sources, `claude-plugin/` and `herdr-plugin/`, write the same shapes; a session id is the agent's own session id where known (`herdr-<pane>` otherwise), so a session reported by both is one file. All paths are under `~/.local/state/stemmix/`.
 
 | File | Shape | Written by | Read by |
 | --- | --- | --- | --- |
-| `config.json` | `{ "tracks": <integer N, default 4>, "player": "spotify" \| "music" }` | the plugin on `session.start` | the daemon every tick |
-| `sessions/<session id>.json` | `{ "working": <bool>, "updatedAt": <ms since epoch> }` | the plugin on every state change and every 2 s | the daemon every tick |
+| `config.json` | `{ "tracks": <integer N, default 4>, "player": "spotify" \| "music" }` | the session source on start and on change | the daemon every tick |
+| `sessions/<session id>.json` | `{ "working": <bool>, "updatedAt": <ms since epoch> }` | the session source on every state change and every 2 s | the daemon every tick |
 
 A session file older than 6 s is dead. `working` is true while the session's main turn runs and no dialog waits on the person.
 
-`session.json` and `config.json` in this folder are the fixtures both sides' tests decode.
+`session.json` and `config.json` in this folder are the fixtures the daemon's and both sources' tests read.
 
 # The pipe protocol between the daemon and the separator
 
