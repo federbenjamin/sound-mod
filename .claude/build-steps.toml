@@ -1,5 +1,0 @@
-# sound-mod's build steps: the global /build flow names a step, this file names the command.
-# Reader and fallbacks: ~/.agent-build/runtime/steps.ts (`node <it> .` prints the resolved table).
-checks      = "swift test --package-path daemon && claude plugin validate claude-plugin && claude plugin test claude-plugin && UV_PROJECT_ENVIRONMENT=$HOME/.local/share/stemmix/venv uv run --project separator pytest -q separator && /usr/bin/python3 -m unittest discover -s herdr-plugin -q"
-exit_checks = "swift test --package-path daemon && claude plugin validate claude-plugin && claude plugin test claude-plugin && UV_PROJECT_ENVIRONMENT=$HOME/.local/share/stemmix/venv uv run --project separator pytest -q separator && /usr/bin/python3 -m unittest discover -s herdr-plugin -q"
-tests       = "swift test --package-path daemon && claude plugin test claude-plugin && UV_PROJECT_ENVIRONMENT=$HOME/.local/share/stemmix/venv uv run --project separator pytest -q separator && /usr/bin/python3 -m unittest discover -s herdr-plugin -q"
