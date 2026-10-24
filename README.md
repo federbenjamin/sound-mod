@@ -10,10 +10,10 @@ A song from Spotify or Apple Music plays as 4 instrument stems: drums, bass, oth
 
 ## Install
 
-Needs macOS, `uv`, and Xcode's command line tools. An Apple Development signing identity in the keychain keeps the audio permission across rebuilds; without one the daemon is signed ad hoc and macOS asks again after every rebuild.
+Needs macOS, [`uv`](https://docs.astral.sh/uv/getting-started/installation/), and Xcode's command line tools. An Apple Development signing identity in the keychain keeps the audio permission across rebuilds; without one the daemon is signed ad hoc and macOS asks again after every rebuild.
 
 ```
-./install.sh
+git clone https://github.com/federbenjamin/sound-mod && cd sound-mod && ./install.sh
 ```
 
 Builds the separator's Python environment in `~/.local/share/stemmix/venv` and runs its self-test (the first run downloads the model weights to `~/.cache/demucs-mlx`), builds and signs the daemon as `~/Applications/Stemmix.app`, and installs the launchd agent, which starts it now and at every login.
@@ -29,13 +29,13 @@ The first time a session works while music plays, macOS needs Stemmix allowed un
 
 - **One more instrument for each working session.** The song you already have playing comes through as drums, bass, other and vocals, and the count of working sessions decides how many of them you hear.
 - **Pause that lands at once.** Pause stops the sound immediately while the music keeps being recorded, so play resumes where you paused. Next and previous move between the songs in the buffer.
-- **Media keys, Control Center and headphone buttons.** While attached, the daemon is the system's Now Playing app. Pausing or playing in Spotify itself does the same to the daemon.
+- **Media keys, Control Center and headphone buttons.** While attached, the daemon is the system's Now Playing app, and pausing or playing in Spotify itself does the same to the daemon. Known limits below lists what is still unchecked.
 - **Two session sources.** A Claude Code plugin counts Claude Code sessions in any terminal; a herdr plugin counts every top-level agent pane herdr shows as working.
-- **Nothing to switch off.** While no session is open the tap is released and the player sounds normal.
+- **Nothing to switch off.** While no session is open at all, the tap is released and the player sounds normal. With sessions open but none working, you hear silence while the music keeps playing underneath.
 
 ## Usage
 
-While attached, the daemon is the system's Now Playing app, so the keyboard's media keys, Control Center and headphone buttons reach it (whether they do so while Spotify also plays is still unchecked; see Known limits): play/pause, next (the next song already in the buffer, else back to live), previous (the start of this song, or the one before within its first 3 s). Pausing or playing in Spotify itself does the same to the daemon at once.
+Play something in Spotify (or Music) and open a session; the daemon attaches while a session is open and the player is running, and lets go a minute after the last one closes. While attached, the daemon is the system's Now Playing app, so the keyboard's media keys, Control Center and headphone buttons reach it (whether they do so while Spotify also plays is still unchecked; see Known limits): play/pause, next (the next song already in the buffer, else back to live), previous (the start of this song, or the one before within its first 3 s). Pausing or playing in Spotify itself does the same to the daemon at once.
 
 From a terminal or a hotkey tool:
 
@@ -69,7 +69,7 @@ The daemon and the session sources meet in `~/.local/state/stemmix/`; the daemon
 
 - "Next" at the live edge cannot skip the song in Spotify: that needs the Automation permission, not built.
 - Whether macOS hands the media keys to the daemon while Spotify also plays has not been checked by hand yet. If it does not, the keys go to Spotify, and following Spotify's own pause still stops the sound at once.
-- The music keeps playing silently at zero sessions; it is not paused.
+- The music keeps playing silently at zero working sessions; it is not paused.
 - Apple Music streamed (FairPlay) tracks and its track notifications were not verified here.
 - One Mac: the count is of sessions on the machine the daemon runs on.
 - herdr reads an agent's state from its terminal (title and on-screen forms), so its `working` can lag a moment behind the agent; the Claude Code plugin reports from inside the session.
