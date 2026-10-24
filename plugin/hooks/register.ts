@@ -59,10 +59,10 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // A permission dialog: the verdict `ask` on a real call of the main loop means the person is being asked.
+  // A permission dialog: an `ask` verdict on a real main-loop call that a person (not the host's classifier) answers.
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
-    if (e.agentId === undefined && e.tool_use_id !== undefined && verdict.decision === 'ask') {
+    if (e.agentId === undefined && e.tool_use_id !== undefined && e.approver === 'person' && verdict.decision === 'ask') {
       waiting.add(e.tool_use_id)
       await writeSession($, home, isWorking())
     }

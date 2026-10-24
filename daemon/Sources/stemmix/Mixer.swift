@@ -19,6 +19,8 @@ final class Mixer {
   private var currentLogCutoff: Double
   private var currentGain = 0.0
   private var scratch: [Float] = []
+  private var levelSumSq = 0.0
+  private var levelSamples = 0
   private let logFloor = log(Config.cutoffFloorHz)
   private let logCeiling = log(Config.cutoffCeilingHz)
 
@@ -37,6 +39,14 @@ final class Mixer {
     lock.unlock()
   }
 
+  /// The input level since the last call: RMS in dBFS (nil with no samples), and how many samples it covers.
+  func takeLevel() -> (rmsDb: Double?, samples: Int) {
+    lock.lock()
+    defer { lock.unlock(); levelSumSq = 0; levelSamples = 0 }
+    let rms = levelSamples > 0 ? sqrt(levelSumSq / Double(levelSamples)) : 0
+    return (rms > 0 ? 20 * log10(rms) : nil, levelSamples)
+  }
+
   /// One IO cycle. Ramps toward the target, filters the tap input, and writes it to every output buffer.
   func render(_ input: UnsafePointer<AudioBufferList>, _ output: UnsafeMutablePointer<AudioBufferList>, frames: Int) {
     lock.lock()
@@ -52,6 +62,7 @@ final class Mixer {
 
     let outputs = UnsafeMutableAudioBufferListPointer(output)
     for buffer in outputs { memset(buffer.mData, 0, Int(buffer.mDataByteSize)) }
+    measure(input, frames: frames)
     guard frames > 0, currentGain > 0 || wanted.gain > 0 else {
       if bypass { filter.reset() }
       return
@@ -91,6 +102,23 @@ final class Mixer {
         }
       }
     }
+  }
+
+  private func measure(_ input: UnsafePointer<AudioBufferList>, frames: Int) {
+    let inputs = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
+    var sumSq = 0.0
+    var count = 0
+    for buffer in inputs {
+      guard let data = buffer.mData else { continue }
+      let samples = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
+      let p = data.assumingMemoryBound(to: Float.self)
+      for i in 0..<samples { sumSq += Double(p[i] * p[i]) }
+      count += samples
+    }
+    lock.lock()
+    levelSumSq += sumSq
+    levelSamples += count
+    lock.unlock()
   }
 
   private func approach(_ current: Double, _ wanted: Double, by step: Double) -> Double {

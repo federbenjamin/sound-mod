@@ -52,6 +52,10 @@ func playerProcessObjects(bundlePrefix: String) -> [AudioObjectID] {
     .sorted()
 }
 
+func isOutputting(_ objects: [AudioObjectID]) -> Bool {
+  objects.contains { readUInt32($0, kAudioProcessPropertyIsRunningOutput) != 0 }
+}
+
 struct OutputDevice: Equatable {
   let id: AudioObjectID
   let uid: String
@@ -79,13 +83,13 @@ final class ProcessTap {
   private var procID: AudioDeviceIOProcID?
   private let queue = DispatchQueue(label: "stemmix.io", qos: .userInteractive)
 
-  init(targets: [AudioObjectID], output: OutputDevice) throws {
+  init(targets: [AudioObjectID], output: OutputDevice, mute: CATapMuteBehavior = .mutedWhenTapped) throws {
     self.targets = targets
     self.output = output
 
     let description = CATapDescription(stereoMixdownOfProcesses: targets)
     description.uuid = tapUUID
-    description.muteBehavior = .mutedWhenTapped
+    description.muteBehavior = mute
     description.name = "stemmix"
     var tap: AudioObjectID = kAudioObjectUnknown
     var status = AudioHardwareCreateProcessTap(description, &tap)
@@ -142,14 +146,17 @@ final class ProcessTap {
     }
   }
 
-  /// Hands the Core Audio objects to a teardown thread and returns at once.
-  func stop() {
+  /// Hands the Core Audio objects to a teardown thread; returns at once, or after the teardown when `wait` is
+  /// given (bounded: a stop can block in coreaudiod). A client that dies holding a running tap wedges coreaudiod
+  /// for every later tap, so an exit always waits.
+  func stop(wait: TimeInterval? = nil) {
     let aggregate = aggregateID
     let proc = procID
     let tap = tapID
     aggregateID = kAudioObjectUnknown
     procID = nil
     tapID = kAudioObjectUnknown
+    let done = DispatchSemaphore(value: 0)
     let thread = Thread {
       if aggregate != kAudioObjectUnknown {
         if let proc {
@@ -160,8 +167,12 @@ final class ProcessTap {
       }
       if tap != kAudioObjectUnknown { AudioHardwareDestroyProcessTap(tap) }
       Log.line("teardown done tap=\(tap) aggregate=\(aggregate)")
+      done.signal()
     }
     thread.name = "stemmix.teardown"
     thread.start()
+    if let wait, done.wait(timeout: .now() + wait) == .timedOut {
+      Log.line("teardown timed out after \(wait)s tap=\(tap) aggregate=\(aggregate)")
+    }
   }
 }

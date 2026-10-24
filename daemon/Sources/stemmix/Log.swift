@@ -7,15 +7,14 @@ enum Log {
     return f
   }()
 
+  /// One line per call, appended with O_APPEND so lines from the control loop and the teardown thread never overwrite each other.
   static func line(_ text: String) {
     let row = "\(formatter.string(from: Date())) \(text)\n"
     let url = Config.logFile
-    let fm = FileManager.default
-    try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-    if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: nil) }
-    guard let handle = try? FileHandle(forWritingTo: url) else { return }
-    defer { try? handle.close() }
-    _ = try? handle.seekToEnd()
-    try? handle.write(contentsOf: Data(row.utf8))
+    try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let fd = open(url.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+    guard fd >= 0 else { return }
+    defer { close(fd) }
+    _ = row.withCString { write(fd, $0, strlen($0)) }
   }
 }
