@@ -1,20 +1,27 @@
+import AppKit
 import CoreAudio
 import Foundation
 
-/// The control loop: reads the session files, decides whether the tap is attached and at what cutoff,
-/// and logs every change. Audio work lives in Mixer and ProcessTap.
+/// The control loop: reads the session files, decides whether the tap is attached and how many stems play,
+/// routes every transport command into the playback, and logs every change. Audio lives in Playback.
 final class Daemon {
   private let reader = StateReader()
   private var tap: ProcessTap?
-  private var mixer: Mixer?
-  private var lastTarget: Target?
+  private var playback: Playback?
+  private var nowPlaying: NowPlaying?
+  private var lastAudible: Int?
   private var lastCounts: Counts?
   private var lastSessions: [String: Bool] = [:]
   private var lastLiveAt = Date.distantPast
   private var nextAttachAt = Date.distantPast
   private var nextLevelAt = Date.distantPast
+  private var nextPruneAt = Date.distantPast
   private var silentSince: Date?
   private var lastPermission: CapturePermission?
+  private var lastSong: TrackMark?
+  private var lastPlaying: Bool?
+  private var playerObserver: NSObjectProtocol?
+  private var observedPlayer: String?
 
   private var signalSources: [DispatchSourceSignal] = []
 
@@ -24,11 +31,14 @@ final class Daemon {
       exit(0)
     }
     Log.line("start pid=\(ProcessInfo.processInfo.processIdentifier)")
+    // A separator that dies mid-write must be an EPIPE, not a SIGPIPE that kills the daemon with a tap running.
+    signal(SIGPIPE, SIG_IGN)
     for sig in [SIGTERM, SIGINT, SIGHUP] {
       signal(sig, SIG_IGN)
       let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
       source.setEventHandler { [self] in
         Log.line("signal \(sig): detaching before exit")
+        playback?.stop()
         tap?.stop(wait: Config.exitTeardownWait)
         tap = nil
         exit(0)
@@ -36,9 +46,25 @@ final class Daemon {
       source.resume()
       signalSources.append(source)
     }
+    nowPlaying = NowPlaying { [weak self] command in self?.handle(command, source: "media-key") }
+    DistributedNotificationCenter.default().addObserver(forName: Config.controlNotification, object: nil, queue: .main) { [weak self] note in
+      guard let text = note.object as? String, let command = TransportCommand(rawValue: text) else { return }
+      self?.handle(command, source: "control")
+    }
     let timer = Timer(timeInterval: Config.pollInterval, repeats: true) { [self] _ in tick() }
     RunLoop.main.add(timer, forMode: .common)
-    RunLoop.main.run()
+    // An accessory app (no Dock icon) so the system treats the daemon as an app that can be Now Playing.
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    app.run()
+  }
+
+  private func handle(_ command: TransportCommand, source: String) {
+    guard let playback else {
+      Log.line("transport source=\(source) command=\(command.rawValue) ignored: not attached")
+      return
+    }
+    playback.handle(command, source: source)
   }
 
   private func tick() {
@@ -48,6 +74,14 @@ final class Daemon {
     let counts = summarize(sessions: Array(sessions.values), nowMs: now.timeIntervalSince1970 * 1000, staleMs: Config.sessionStaleMs)
     logSessionChanges(sessions)
     if counts.live > 0 { lastLiveAt = now }
+    if now >= nextPruneAt {
+      nextPruneAt = now.addingTimeInterval(60)
+      for id in expiredSessions(sessions, nowMs: now.timeIntervalSince1970 * 1000, maxAgeMs: Config.sessionFileMaxAgeMs) {
+        try? FileManager.default.removeItem(at: Config.sessionsDir.appendingPathComponent("\(id).json"))
+        Log.line("session id=\(id) pruned")
+      }
+    }
+    observePlayer(config.player)
 
     let prefix = Config.playerBundlePrefixes[config.player] ?? Config.playerBundlePrefixes[Config.defaultPlayer]!
     let targets = playerProcessObjects(bundlePrefix: prefix)
@@ -61,14 +95,14 @@ final class Daemon {
       attach(targets: targets, output: output, player: config.player)
     }
 
-    guard let mixer else { return }
+    guard let playback else { return }
     if now >= nextLevelAt {
-      let level = mixer.takeLevel()
-      Log.line("level in=\(level.rmsDb.map { String(format: "%.1fdBFS", $0) } ?? "none") samples=\(level.samples)")
+      let status = playback.status()
+      Log.line(status.line)
       nextLevelAt = now.addingTimeInterval(Config.levelInterval)
       // A tap that delivers no samples at all while the player outputs is dead (a coreaudiod restart, a stale
       // aggregate): rebuild it rather than sit on it.
-      if level.samples == 0, isOutputting(targets) {
+      if status.inputSamples == 0, isOutputting(targets) {
         silentSince = silentSince ?? now
         if now.timeIntervalSince(silentSince!) >= Config.deadTapAfter {
           silentSince = nil
@@ -79,41 +113,61 @@ final class Daemon {
         silentSince = nil
       }
     }
-    let k = min(counts.working, config.tracks)
-    let target = Target(cutoffHz: k > 0 ? cutoffHz(working: k, tracks: config.tracks) : Config.cutoffFloorHz, gain: k > 0 ? 1 : 0)
-    if target != lastTarget || counts != lastCounts {
-      mixer.set(target)
-      let cutoff = target.cutoffHz.map { String(format: "%.0f", $0) } ?? "bypass"
-      Log.line("count working=\(counts.working) live=\(counts.live) tracks=\(config.tracks) k=\(k) cutoff=\(cutoff) gain=\(Int(target.gain))")
-      lastTarget = target
+    let audible = audibleStems(working: counts.working, tracks: config.tracks)
+    if audible != lastAudible || counts != lastCounts {
+      playback.setAudible(audible)
+      let names = Stem.allCases.prefix(audible).map(\.name).joined(separator: "+")
+      Log.line("count working=\(counts.working) live=\(counts.live) tracks=\(config.tracks) stems=\(audible) (\(names.isEmpty ? "silent" : names))")
+      lastAudible = audible
       lastCounts = counts
+    }
+    let song = playback.currentSong
+    let playing = playback.playing
+    if song != lastSong || playing != lastPlaying {
+      nowPlaying?.update(title: song?.title, artist: song?.artist, playing: playing)
+      lastSong = song
+      lastPlaying = playing
     }
   }
 
   private func attach(targets: [AudioObjectID], output: OutputDevice, player: String) {
-    // Never let coreaudiod ask TCC on our behalf: an unanswered System Audio Recording prompt leaves coreaudiod
-    // blocked on every later tap until it restarts. Taps are made only once the permission is already granted.
-    let permission = capturePermission()
-    if permission != lastPermission {
-      Log.line("permission \(permission.rawValue)")
-      lastPermission = permission
-    }
-    guard permission == .authorized else {
-      nextAttachAt = Date().addingTimeInterval(Config.permissionRecheck)
-      return
-    }
+    var created: (ProcessTap, Playback)?
     do {
       let tap = try ProcessTap(targets: targets, output: output)
-      let mixer = Mixer(tapFormat: tap.tapFormat)
-      try tap.start { input, output, frames in mixer.render(input, output, frames: frames) }
+      let playback = Playback(rate: Int(tap.tapFormat.mSampleRate))
+      created = (tap, playback)
+      playback.start()
+      try tap.start { input, output, frames in playback.player.render(input, output, frames: frames) }
       self.tap = tap
-      self.mixer = mixer
-      lastTarget = nil
+      self.playback = playback
+      lastAudible = nil
+      lastSong = nil
+      lastPlaying = nil
+      nowPlaying?.claim()
       let formats = tap.outputStreamFormats().map { "\(Int($0.mSampleRate))Hz/\($0.mChannelsPerFrame)ch/\($0.mBitsPerChannel)bit" }.joined(separator: ",")
       Log.line("attach player=\(player) objects=\(targets) tap=\(Int(tap.tapFormat.mSampleRate))Hz/\(tap.tapFormat.mChannelsPerFrame)ch output=\(output.uid) streams=\(formats)")
+    } catch let CoreAudioError.notAuthorized(permission) {
+      // Never let coreaudiod ask TCC on our behalf: ProcessTap refuses until the permission is granted.
+      if permission != lastPermission { Log.line("permission \(permission.rawValue)") }
+      lastPermission = permission
+      nextAttachAt = Date().addingTimeInterval(Config.permissionRecheck)
     } catch {
+      created?.1.stop()
+      created?.0.stop()
       nextAttachAt = Date().addingTimeInterval(Config.attachRetry)
       Log.line("attach-failed player=\(player) error=\(error)")
+    }
+  }
+
+  /// Follows the configured player's play state and track changes through its distributed notification.
+  private func observePlayer(_ player: String) {
+    guard player != observedPlayer else { return }
+    if let playerObserver { DistributedNotificationCenter.default().removeObserver(playerObserver) }
+    observedPlayer = player
+    guard let name = playerNotifications[player] else { return }
+    playerObserver = DistributedNotificationCenter.default().addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] note in
+      guard let event = parsePlayerEvent(note.userInfo ?? [:]) else { return }
+      self?.playback?.handle(event, now: Date().timeIntervalSince1970)
     }
   }
 
@@ -127,10 +181,12 @@ final class Daemon {
 
   private func detach(reason: String) {
     silentSince = nil
+    nowPlaying?.release()
+    playback?.stop()
     tap?.stop()
     tap = nil
-    mixer = nil
-    lastTarget = nil
+    playback = nil
+    lastAudible = nil
     Log.line("detach reason=\(reason)")
   }
 
@@ -154,7 +210,19 @@ enum Main {
     case "--probe": exit(runProbe(Array(arguments.dropFirst())))
     case "--request": exit(runRequest())
     case "--record": exit(runRecord(Array(arguments.dropFirst())))
+    case "--control": exit(runControl(Array(arguments.dropFirst())))
+    case "--simulate": exit(runSimulate(Array(arguments.dropFirst())))
     default: Daemon().run()
     }
   }
+}
+
+/// `--control <command>`: sends a transport command to the running daemon.
+func runControl(_ arguments: [String]) -> Int32 {
+  guard let text = arguments.first, TransportCommand(rawValue: text) != nil else {
+    print("usage: --control \(TransportCommand.allCases.map(\.rawValue).joined(separator: "|"))")
+    return 64
+  }
+  DistributedNotificationCenter.default().postNotificationName(Config.controlNotification, object: text, userInfo: nil, deliverImmediately: true)
+  return 0
 }
