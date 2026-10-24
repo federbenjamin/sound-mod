@@ -37,6 +37,22 @@ class BridgeTests(unittest.TestCase):
             with open(os.path.join(d, "a.json")) as f:
                 self.assertEqual(json.load(f), {"working": False, "updatedAt": 3000})
 
+    def test_saved_machine_panes_merge_and_a_silent_machine_drops_out(self):
+        with open(os.path.join(HERE, "fixtures", "agent-list.json")) as f:
+            agents = json.load(f)["result"]["agents"]
+        remote = bridge.sessions_from_agents(agents, machine="13be883b")
+
+        self.assertEqual(remote, {
+            "0b8c6a3e-1f2d-4c5b-9a7e-2d3f4a5b6c7d": True,
+            "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b": False,
+            "herdr-13be883b-w2-p1": True,
+            "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d": False,
+        })
+        local = {"herdr-w2-p1": True, "aaaa": False}
+        merged = bridge.merge_sessions(local, {"13be883b": (remote, 9_000), "stale": ({"zzzz": True}, 0)}, now_ms=10_000, stale_ms=5_000)
+        self.assertEqual(merged, {**remote, **local})
+        self.assertNotIn("zzzz", merged)
+
     def test_read_config_takes_every_setting_and_defaults_the_rest(self):
         with open(os.path.join(CONTRACT, "config.json")) as f:
             contract_keys = set(json.load(f))

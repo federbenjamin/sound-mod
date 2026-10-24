@@ -1,8 +1,10 @@
 """stemmix for herdr: writes each herdr agent pane's state to the stemmix daemon's session files.
 
 Every top-level agent pane herdr detects (Claude, Codex, ...) is one session; it counts as working while herdr
-reports `working`. `blocked` (a permission or question form on screen), `idle` and `done` do not. The file shape
-is contract/README.md in the stemmix repo. Runs on macOS's own Python 3.9, standard library only.
+reports `working`. `blocked` (a permission or question form on screen), `idle` and `done` do not. The panes of
+every enabled saved machine (`herdr machine list`) count too, asked through herdr's own forwarding; a machine
+that does not answer counts as no sessions. The file shape is contract/README.md in the stemmix repo. Runs on
+macOS's own Python 3.9, standard library only.
 """
 import json
 import os
@@ -24,6 +26,9 @@ HERDR = os.environ.get("HERDR_BIN_PATH", "herdr")
 PLUGIN_ID = "stemmix"
 
 HEARTBEAT_SECS = 2  # the daemon treats a session file older than 6 s as gone
+MACHINES_REFRESH_SECS = 30  # how often the saved-machine list is re-read
+MACHINE_TIMEOUT_SECS = 8  # one forwarded agent list; a machine slower than this is treated as not answering
+REMOTE_STALE_MS = 15_000  # a machine's last answer older than this counts as no sessions (one forwarded call takes seconds)
 MAX_FAILS = 30  # herdr unreachable this many beats in a row: the server is gone, so stop
 WAKE_EVENTS = ["pane.agent_status_changed", "pane.agent_detected", "pane.closed", "pane.exited"]
 DEFAULTS = {"tracks": 4, "player": "spotify", "mode": "instruments", "muffling_max": 7, "muffling_min": 0}
@@ -32,19 +37,81 @@ NUMBER_KEYS = {"tracks": int, "muffling_max": float, "muffling_min": float}
 wake = threading.Event()
 
 
-def session_id(agent):
+def session_id(agent, machine=None):
     """The agent's own session id when herdr knows it, so a session reported by both stemmix's Claude plugin
-    and this bridge is one file; otherwise one id per pane."""
+    and this bridge is one file; otherwise one id per pane, with the machine's id in front for a saved machine,
+    since pane ids repeat per herdr server."""
     session = agent.get("agent_session") or {}
     value = session.get("value")
     if value and re.fullmatch(r"[A-Za-z0-9._-]+", value):
         return value
-    return "herdr-" + re.sub(r"[^A-Za-z0-9._-]", "-", agent["pane_id"])
+    pane = re.sub(r"[^A-Za-z0-9._-]", "-", agent["pane_id"])
+    return f"herdr-{machine}-{pane}" if machine else "herdr-" + pane
 
 
-def sessions_from_agents(agents):
-    """{session id: working} for every agent pane herdr lists."""
-    return {session_id(a): a.get("agent_status") == "working" for a in agents}
+def sessions_from_agents(agents, machine=None):
+    """{session id: working} for every agent pane herdr lists, on this machine or on saved machine `machine`."""
+    return {session_id(a, machine): a.get("agent_status") == "working" for a in agents}
+
+
+def merge_sessions(local, remotes, now_ms, stale_ms=REMOTE_STALE_MS):
+    """The local sessions plus every saved machine's, `remotes` being {machine id: (sessions, answered at ms)};
+    an answer older than `stale_ms` is left out, so a machine that stopped answering stops counting."""
+    merged = {}
+    for sessions, at in remotes.values():
+        if now_ms - at < stale_ms:
+            merged.update(sessions)
+    merged.update(local)
+    return merged
+
+
+def saved_machines():
+    """[(id, label)] of the enabled saved machines, [] when there are none or herdr does not answer."""
+    try:
+        out = subprocess.run([HERDR, "machine", "list", "--json"], capture_output=True, text=True, timeout=10)
+        return [(m["id"], m.get("label", m["id"])) for m in json.loads(out.stdout) if m.get("enabled")]
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        return []
+
+
+def remote_agents(machine_id):
+    """herdr's agent list on a saved machine, through its own forwarding; None when the machine does not answer."""
+    try:
+        out = subprocess.run([HERDR, "--machine", machine_id, "agent", "list"], capture_output=True, text=True, timeout=MACHINE_TIMEOUT_SECS)
+        if out.returncode != 0:
+            return None
+        return (json.loads(out.stdout).get("result") or {}).get("agents", [])
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+remotes_lock = threading.Lock()
+remotes = {}  # machine id: (sessions, answered at ms)
+
+
+def poll_machines():
+    """Keeps `remotes` current: re-reads the saved machines every MACHINES_REFRESH_SECS and asks each one for its
+    agents every beat. Logs a machine once when it stops or starts answering."""
+    machines, machines_at, answering = [], 0, {}
+    while True:
+        if time.time() - machines_at >= MACHINES_REFRESH_SECS:
+            machines, machines_at = saved_machines(), time.time()
+            with remotes_lock:
+                for gone in set(remotes) - {m for m, _ in machines}:
+                    del remotes[gone]
+        for machine_id, label in machines:
+            agents = remote_agents(machine_id)
+            if agents is None:
+                if answering.get(machine_id, True):
+                    log(f"machine {label}: not answering; counting no sessions there")
+                answering[machine_id] = False
+                continue
+            if not answering.get(machine_id, False):
+                log(f"machine {label}: answering, {len(agents)} agent panes")
+            answering[machine_id] = True
+            with remotes_lock:
+                remotes[machine_id] = (sessions_from_agents(agents, machine_id[:8]), time.time() * 1000)
+        time.sleep(HEARTBEAT_SECS)
 
 
 def read_config(path):
@@ -170,6 +237,7 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     config_path = plugin_config_path()
     threading.Thread(target=listen, daemon=True).start()
+    threading.Thread(target=poll_machines, daemon=True).start()
     fails = 0
     last_config = None
     last_counts = None
@@ -183,11 +251,17 @@ def main():
                 break
         else:
             fails = 0
-            sessions = sessions_from_agents(result.get("agents", []))
-            written = sync(SESSIONS_DIR, sessions, written, time.time() * 1000)
+            now_ms = time.time() * 1000
+            local = sessions_from_agents(result.get("agents", []))
+            with remotes_lock:
+                remote = dict(remotes)
+            sessions = merge_sessions(local, remote, now_ms)
+            written = sync(SESSIONS_DIR, sessions, written, now_ms)
             counts = (sum(sessions.values()), len(sessions))
             if counts != last_counts:
-                log(f"agents working={counts[0]} live={counts[1]}")
+                here = f"here {sum(local.values())}/{len(local)}"
+                there = sum(len(s) for s, _ in remote.values())
+                log(f"agents working={counts[0]} live={counts[1]} ({here}, saved machines {len(sessions) - len(local)}/{there})")
                 last_counts = counts
             config = read_config(config_path) if config_path else dict(DEFAULTS)
             if config != last_config:

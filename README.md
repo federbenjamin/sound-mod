@@ -32,7 +32,7 @@ The first time a session works while music plays, macOS needs Stemmix allowed un
 - **One more instrument for each working session.** The song you already have playing comes through as drums, bass, other and vocals, and the count of working sessions decides how many of them you hear.
 - **Pause that lands at once.** Pause stops the sound immediately while the music keeps being recorded, so play resumes where you paused. Next and previous move between the songs in the buffer.
 - **Media keys, Control Center and headphone buttons.** While attached, the daemon is the system's Now Playing app, and pausing or playing in Spotify itself does the same to the daemon. Known limits below lists what is still unchecked.
-- **Two session sources.** A Claude Code plugin counts Claude Code sessions in any terminal; a herdr plugin counts every top-level agent pane herdr shows as working.
+- **Two session sources.** A Claude Code plugin counts Claude Code sessions in any terminal; a herdr plugin counts every top-level agent pane herdr shows as working, on this Mac and on the machines saved in herdr.
 - **Thin the song your way.** Take instruments away as fewer sessions work (the default), or keep every instrument and muffle the sound like through a wall, or both at once. How muffled it gets at the quietest end is a 0 to 10 setting.
 - **Nothing to switch off.** While no session is open at all, the tap is released and the player sounds normal. With sessions open but none working, you hear silence while the music keeps playing underneath.
 
@@ -74,7 +74,7 @@ Three parts, and you pick the third:
 - **The separator** (`separator/`, Python): HTDemucs through `demucs-mlx` on the GPU. The daemon starts it while attached and sends it one 7.8 s window a second over a pipe; the stems play about 3 s behind the music.
 - **A session source**, one of:
   - **The Claude Code plugin** (`claude-plugin/`): each Claude Code session reports whether its main turn is running and not waiting on you (a permission dialog, a question, a plan to approve). Counts Claude Code sessions in any terminal.
-  - **The herdr plugin** (`herdr-plugin/`): reports every top-level agent pane in [herdr](https://herdr.dev) (Claude Code, Codex, and any agent herdr detects); a pane counts while herdr shows it `working`, and not while it is `blocked` on you, `idle` or `done`. Counts only sessions running inside herdr.
+  - **The herdr plugin** (`herdr-plugin/`): reports every top-level agent pane in [herdr](https://herdr.dev) (Claude Code, Codex, and any agent herdr detects), on this Mac and on every saved machine herdr can reach (`herdr machine list`); a pane counts while herdr shows it `working`, and not while it is `blocked` on you, `idle` or `done`. A machine that does not answer counts as no sessions. Counts only sessions running inside herdr.
 
   Install one. Both write the same session files, keyed by the agent's session id where herdr knows it, so a Claude session reported by both is still one session.
 
@@ -86,7 +86,7 @@ The daemon and the session sources meet in `~/.local/state/stemmix/`; the daemon
 - Whether macOS hands the media keys to the daemon while Spotify also plays has not been checked by hand yet. If it does not, the keys go to Spotify, and following Spotify's own pause still stops the sound at once.
 - The music keeps playing silently at zero working sessions; it is not paused.
 - Apple Music streamed (FairPlay) tracks and its track notifications were not verified here.
-- One Mac: the count is of sessions on the machine the daemon runs on.
+- The music comes out of the Mac the daemon runs on. The Claude Code plugin counts sessions on that Mac only; the herdr plugin also counts the saved machines herdr can reach, with a second or two of lag for those.
 - herdr reads an agent's state from its terminal (title and on-screen forms), so its `working` can lag a moment behind the agent; the Claude Code plugin reports from inside the session.
 
 ## Contributing
