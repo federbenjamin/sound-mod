@@ -8,8 +8,8 @@
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleVersion</key><string>1</string>
-  <key>LSMinimumSystemVersion</key><string>14.2</string>
+  <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>LSUIElement</key><true/>
-  <key>NSAudioCaptureUsageDescription</key><string>Stemmix reads the music player's output to play it back filtered by how many Claude sessions are working.</string>
+  <key>NSAudioCaptureUsageDescription</key><string>Stemmix reads the music player's output to play it back as instrument stems, one more for each Claude session working.</string>
 </dict>
 </plist>

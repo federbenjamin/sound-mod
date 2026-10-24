@@ -12,10 +12,10 @@ final class StateTests: XCTestCase {
     let session = try JSONDecoder().decode(SessionFile.self, from: Data(contentsOf: fixtures.appendingPathComponent("session.json")))
     XCTAssertEqual(session, SessionFile(working: true, updatedAt: 1_700_000_000_000))
     let config = try JSONDecoder().decode(ConfigFile.self, from: Data(contentsOf: fixtures.appendingPathComponent("config.json")))
-    XCTAssertEqual(config, ConfigFile(tracks: 5, player: "spotify"))
+    XCTAssertEqual(config, ConfigFile(tracks: 4, player: "spotify"))
   }
 
-  func testSummarizeCountsLiveAndWorkingAndCutoffSchedule() {
+  func testSummarizeCountsLiveAndWorkingAndStemSchedule() {
     let now = 10_000.0
     let sessions = [
       SessionFile(working: true, updatedAt: now - 1_000),
@@ -24,12 +24,8 @@ final class StateTests: XCTestCase {
     ]
     XCTAssertEqual(summarize(sessions: sessions, nowMs: now, staleMs: 6_000), Counts(live: 2, working: 1))
 
-    XCTAssertNil(cutoffHz(working: 5, tracks: 5))
-    XCTAssertNil(cutoffHz(working: 9, tracks: 5))
-    let one = try! XCTUnwrap(cutoffHz(working: 1, tracks: 5))
-    let four = try! XCTUnwrap(cutoffHz(working: 4, tracks: 5))
-    XCTAssertGreaterThan(one, Config.cutoffFloorHz)
-    XCTAssertGreaterThan(four, one)
-    XCTAssertLessThan(four, Config.cutoffCeilingHz)
+    XCTAssertEqual((0...5).map { audibleStems(working: $0, tracks: 4) }, [0, 1, 2, 3, 4, 4])
+    XCTAssertEqual((0...5).map { audibleStems(working: $0, tracks: 5) }, [0, 1, 2, 3, 4, 4])
+    XCTAssertEqual((0...3).map { audibleStems(working: $0, tracks: 2) }, [0, 2, 4, 4])
   }
 }

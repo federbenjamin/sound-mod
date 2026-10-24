@@ -5,11 +5,13 @@ import Foundation
 enum CoreAudioError: Error, CustomStringConvertible {
   case status(OSStatus, String)
   case unsupported(String)
+  case notAuthorized(CapturePermission)
 
   var description: String {
     switch self {
     case let .status(code, what): return "\(what) failed OSStatus \(code)"
     case let .unsupported(what): return what
+    case let .notAuthorized(permission): return "not authorized (permission \(permission.rawValue))"
     }
   }
 }
@@ -83,9 +85,13 @@ final class ProcessTap {
   private var procID: AudioDeviceIOProcID?
   private let queue = DispatchQueue(label: "stemmix.io", qos: .userInteractive)
 
+  /// Throws `.notAuthorized` unless System Audio Recording is already granted. Never let coreaudiod ask TCC on
+  /// our behalf: an unanswered prompt leaves coreaudiod blocked on every later tap until it restarts.
   init(targets: [AudioObjectID], output: OutputDevice, mute: CATapMuteBehavior = .mutedWhenTapped) throws {
     self.targets = targets
     self.output = output
+    let permission = capturePermission()
+    guard permission == .authorized else { throw CoreAudioError.notAuthorized(permission) }
 
     let description = CATapDescription(stereoMixdownOfProcesses: targets)
     description.uuid = tapUUID

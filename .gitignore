@@ -2,4 +2,6 @@
 /.claude/run-state/
 /daemon/.build/
 .DS_Store
-/plugin/.claude-plugin/types/
+/claude-plugin/.claude-plugin/types/
+__pycache__/
+.pytest_cache/

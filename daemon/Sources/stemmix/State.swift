@@ -22,6 +22,11 @@ func summarize(sessions: [SessionFile], nowMs: Double, staleMs: Double) -> Count
   return Counts(live: live.count, working: live.filter(\.working).count)
 }
 
+/// Session files the plugin left behind (a session that crashed or was killed never writes its end).
+func expiredSessions(_ sessions: [String: SessionFile], nowMs: Double, maxAgeMs: Double) -> [String] {
+  sessions.filter { nowMs - $0.value.updatedAt > maxAgeMs }.map(\.key).sorted()
+}
+
 struct StateReader {
   let decoder = JSONDecoder()
 

@@ -21,40 +21,57 @@ async function readHome($: EngineInterface) {
   return stdout.trim()
 }
 
+type Reporter = {
+  home: string
+  ready?: Promise<void>
+  heartbeat?: { cancel(): void }
+  isWorking(): boolean
+}
+
+// Runs once per session, from whichever hook fires first: a session that enabled the plugin mid-way
+// (/reload-plugins) never sees session.start.
+async function setUp($: EngineInterface, reporter: Reporter, tracks: number, player: string) {
+  reporter.home = await readHome($)
+  await writeConfig($, reporter.home, tracks, player)
+  await writeSession($, reporter.home, reporter.isWorking())
+  reporter.heartbeat = $.clock.every(HEARTBEAT_MS, () => void writeSession($, reporter.home, reporter.isWorking()).catch(() => undefined))
+}
+
+function ready($: EngineInterface, reporter: Reporter, tracks: number, player: string) {
+  reporter.ready ??= setUp($, reporter, tracks, player)
+  return reporter.ready
+}
+
 export const register: Register = (on, options) => {
-  const tracks = Number(options.tracks ?? 5)
+  const tracks = Number(options.tracks ?? 4)
   const player = String(options.player ?? 'spotify')
 
-  let home = ''
   let turnActive = false
   const waiting = new Set<string>()
-  let heartbeat: { cancel(): void } | undefined
-
-  const isWorking = () => turnActive && waiting.size === 0
+  const reporter: Reporter = { home: '', isWorking: () => turnActive && waiting.size === 0 }
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    home = await readHome($)
-    await writeConfig($, home, tracks, player)
-    await writeSession($, home, isWorking())
-    heartbeat = $.clock.every(HEARTBEAT_MS, () => void writeSession($, home, isWorking()).catch(() => undefined))
+    await ready($, reporter, tracks, player)
     return started
   })
 
   on('turn.start', async ($, e, next) => {
+    await ready($, reporter, tracks, player)
     if (e.agentId === undefined) {
       turnActive = true
       waiting.clear()
-      await writeSession($, home, isWorking())
+      await writeSession($, reporter.home, reporter.isWorking())
     }
     return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
+    await ready($, reporter, tracks, player)
     if (e.agentId === undefined) {
       turnActive = false
       waiting.clear()
-      await writeSession($, home, isWorking())
+      await writeSession($, reporter.home, reporter.isWorking())
     }
     return next(e)
   })
@@ -63,8 +80,9 @@ export const register: Register = (on, options) => {
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
     if (e.agentId === undefined && e.tool_use_id !== undefined && e.approver === 'person' && verdict.decision === 'ask') {
+      await ready($, reporter, tracks, player)
       waiting.add(e.tool_use_id)
-      await writeSession($, home, isWorking())
+      await writeSession($, reporter.home, reporter.isWorking())
     }
     return verdict
   })
@@ -72,22 +90,23 @@ export const register: Register = (on, options) => {
   // A question or a plan put to the person waits for as long as the call runs; any call's end clears its ask.
   on('tool.call', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
+    await ready($, reporter, tracks, player)
     const id = e.tool_use_id ?? `${e.tool}:${await $.clock.now()}`
     if (DIALOG_TOOLS.has(e.tool)) {
       waiting.add(id)
-      await writeSession($, home, isWorking())
+      await writeSession($, reporter.home, reporter.isWorking())
     }
     const result = await next(e)
-    if (waiting.delete(id)) await writeSession($, home, isWorking())
+    if (waiting.delete(id)) await writeSession($, reporter.home, reporter.isWorking())
     return result
   })
 
   on('session.end', async ($, e, next) => {
     turnActive = false
     waiting.clear()
-    heartbeat?.cancel()
-    heartbeat = undefined
-    await writeSession($, home, false)
+    reporter.heartbeat?.cancel()
+    reporter.heartbeat = undefined
+    await writeSession($, reporter.home, reporter.isWorking())
     return next(e)
   })
 }

@@ -132,3 +132,95 @@ func runRequest() -> Int32 {
   say("permission-after=\(capturePermission().rawValue)")
   return capturePermission() == .authorized ? 0 : 3
 }
+
+private final class Recorder: @unchecked Sendable {
+  private let lock = NSLock()
+  private var samples: [Float] = []
+  private let capacity: Int
+
+  init(capacity: Int) {
+    self.capacity = capacity
+    samples.reserveCapacity(capacity)
+  }
+
+  /// Appends the first buffer's interleaved samples, up to the capacity.
+  func add(_ input: UnsafePointer<AudioBufferList>) {
+    let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
+    guard let first = buffers.first, let data = first.mData else { return }
+    let count = Int(first.mDataByteSize) / MemoryLayout<Float>.size
+    let p = data.assumingMemoryBound(to: Float.self)
+    lock.lock()
+    let room = max(capacity - samples.count, 0)
+    samples.append(contentsOf: UnsafeBufferPointer(start: p, count: min(count, room)))
+    lock.unlock()
+  }
+
+  var count: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return samples.count
+  }
+
+  func write(to path: String) throws {
+    lock.lock()
+    let copy = samples
+    lock.unlock()
+    try copy.withUnsafeBytes { try Data($0).write(to: URL(fileURLWithPath: path)) }
+  }
+}
+
+/// `--record <bundle-prefix> <path> <seconds> [skip]`: waits up to 30 s for the player to output sound, waits
+/// `skip` seconds, then writes `seconds` of the player's audio to `path` as raw interleaved float32 at the tap's
+/// rate. Taps only with the permission already granted, and unmuted, so the player is heard as normal.
+func runRecord(_ arguments: [String]) -> Int32 {
+  guard arguments.count >= 3, let seconds = Double(arguments[2]) else {
+    say("usage: --record <bundle-prefix> <path> <seconds> [skip]")
+    return 64
+  }
+  let prefix = arguments[0]
+  let path = arguments[1]
+  let skip = arguments.count > 3 ? Double(arguments[3]) ?? 0 : 0
+  let permission = capturePermission()
+  say("permission=\(permission.rawValue)")
+  guard permission == .authorized else {
+    say("result=not-authorized")
+    return 3
+  }
+  var targets: [AudioObjectID] = []
+  let deadline = Date().addingTimeInterval(30)
+  repeat {
+    targets = playerProcessObjects(bundlePrefix: prefix)
+    if isOutputting(targets) { break }
+    Thread.sleep(forTimeInterval: 0.25)
+  } while Date() < deadline
+  guard isOutputting(targets) else {
+    say("result=player-not-playing objects=\(targets)")
+    return 2
+  }
+  say("player playing objects=\(targets); waiting \(skip)s before recording")
+  Thread.sleep(forTimeInterval: skip)
+  targets = playerProcessObjects(bundlePrefix: prefix)
+  do {
+    let tap = try ProcessTap(targets: targets, output: .current(), mute: .unmuted)
+    let format = tap.tapFormat
+    let channels = Int(format.mChannelsPerFrame)
+    guard format.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0 else {
+      tap.stop(wait: Config.exitTeardownWait)
+      say("result=unsupported non-interleaved tap format")
+      return 5
+    }
+    let recorder = Recorder(capacity: Int(seconds * format.mSampleRate) * channels)
+    try tap.start { input, output, _ in
+      recorder.add(input)
+      for buffer in UnsafeMutableAudioBufferListPointer(output) { memset(buffer.mData, 0, Int(buffer.mDataByteSize)) }
+    }
+    Thread.sleep(forTimeInterval: seconds)
+    tap.stop(wait: Config.exitTeardownWait)
+    try recorder.write(to: path)
+    say("result recorded frames=\(recorder.count / max(channels, 1)) rate=\(Int(format.mSampleRate)) channels=\(channels)")
+    return 0
+  } catch {
+    say("result=error \(error)")
+    return 5
+  }
+}

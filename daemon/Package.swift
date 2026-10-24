@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
   name: "stemmix",
-  platforms: [.macOS("14.2")],
+  platforms: [.macOS("15.0")],
   targets: [
     .executableTarget(name: "stemmix", path: "Sources/stemmix"),
     .testTarget(name: "stemmixTests", dependencies: ["stemmix"], path: "Tests/stemmixTests"),

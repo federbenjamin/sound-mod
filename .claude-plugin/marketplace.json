@@ -1,5 +1,5 @@
 {
   "name": "sound-mod",
   "owner": { "name": "federbenjamin" },
-  "plugins": [{ "name": "stemmix", "source": "./plugin" }]
+  "plugins": [{ "name": "stemmix", "source": "./claude-plugin" }]
 }

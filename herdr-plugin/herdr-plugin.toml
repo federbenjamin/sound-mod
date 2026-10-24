@@ -1,0 +1,20 @@
+# stemmix for herdr: counts the agent panes that are working and tells the stemmix daemon,
+# which plays one more instrument stem of your music for each.
+
+id = "stemmix"
+name = "stemmix"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "Music that fills in with your working agents: one more instrument stem for each agent pane that is working"
+platforms = ["macos"]
+
+# A one-shot launch per server start; the process stays alive itself, and a newer start takes over.
+[[startup]]
+command = ["/usr/bin/python3", "stemmix_herdr.py"]
+
+[[actions]]
+id = "restart"
+title = "stemmix: restart"
+description = "Start a fresh bridge in place of the running one"
+contexts = ["global"]
+command = ["sh", "-c", "/usr/bin/python3 stemmix_herdr.py >/dev/null 2>&1 &"]

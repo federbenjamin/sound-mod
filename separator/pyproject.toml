@@ -1,0 +1,9 @@
+[project]
+name = "stemmix-separator"
+version = "0.1.0"
+description = "HTDemucs stem separation for the stemmix daemon, over a pipe"
+requires-python = ">=3.12"
+dependencies = ["demucs-mlx==1.6.1", "soxr==1.1.0", "numpy==2.5.4"]
+
+[dependency-groups]
+dev = ["pytest"]
