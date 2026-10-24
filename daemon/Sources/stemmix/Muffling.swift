@@ -40,3 +40,8 @@ func mufflingCutoffHz(config: ConfigFile, working k: Int) -> Double? {
   guard config.mode.muffles else { return nil }
   return mufflingCutoffHz(level: mufflingLevel(working: k, tracks: config.tracks, max: config.mufflingMax, min: config.mufflingMin))
 }
+
+/// The cutoff as the count line prints it: "3608Hz", "none" for no filter.
+func cutoffLabel(_ cutoffHz: Double?) -> String {
+  cutoffHz.map { String(format: "%.0fHz", $0) } ?? "none"
+}

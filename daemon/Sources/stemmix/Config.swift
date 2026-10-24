@@ -74,4 +74,11 @@ enum Config {
   static let nowPlayingChangeWindow: TimeInterval = 1
   // At most one retake of a lost slot this often, so an app that also retakes on loss cannot loop with us.
   static let nowPlayingRetakeCooldown: TimeInterval = 30
+
+  // The menu bar icon, SF Symbols drawn as templates; detached dims the playing symbol.
+  static let menuSymbolDetached = "waveform"
+  static let menuSymbolPlaying = "waveform"
+  static let menuSymbolPaused = "pause.circle"
+  // The names the menu shows for the `player` keys of config.json.
+  static let playerNames: [String: String] = ["spotify": "Spotify", "music": "Music"]
 }
