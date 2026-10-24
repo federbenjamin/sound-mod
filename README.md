@@ -10,7 +10,7 @@ A song from Spotify or Apple Music plays as 4 instrument stems: drums, bass, oth
 
 ## Install
 
-Needs macOS, [`uv`](https://docs.astral.sh/uv/getting-started/installation/), and Xcode's command line tools. An Apple Development signing identity in the keychain keeps the audio permission across rebuilds; without one the daemon is signed ad hoc and macOS asks again after every rebuild.
+Needs macOS, [`uv`](https://docs.astral.sh/uv/getting-started/installation/), and Xcode's command line tools. An Apple Development signing identity in the keychain keeps the audio permission across rebuilds; without one the daemon is signed ad hoc and the permission below has to be given again after every rebuild.
 
 ```
 git clone https://github.com/federbenjamin/sound-mod && cd sound-mod && ./install.sh
@@ -18,12 +18,12 @@ git clone https://github.com/federbenjamin/sound-mod && cd sound-mod && ./instal
 
 Builds the separator's Python environment in `~/.local/share/stemmix/venv` and runs its self-test (the first run downloads the model weights to `~/.cache/demucs-mlx`), builds and signs the daemon as `~/Applications/Stemmix.app`, and installs the launchd agent, which starts it now and at every login.
 
-Then install one session source:
+Then install one session source; each carries the same two settings, `tracks` and `player`:
 
 - Claude Code: add this repo as a plugin marketplace and enable `stemmix@sound-mod` (`/plugin marketplace add <path or owner/repo>`, then `/plugin install stemmix@sound-mod`). Settings, in `/config`: `tracks` (N, the number of working sessions at which you hear the whole song; default 4) and `player` (`spotify` or `music`).
 - herdr: `herdr plugin link <this repo>/herdr-plugin` (or `herdr plugin install <owner>/sound-mod/herdr-plugin` from GitHub). herdr starts it with its server; to start it now, `herdr plugin action invoke restart --plugin stemmix`. Settings: `tracks = 4` and `player = "spotify"` in `config.toml` in the folder `herdr plugin config-dir stemmix` prints. Needs macOS's own `/usr/bin/python3` (Xcode Command Line Tools).
 
-The first time a session works while music plays, macOS needs Stemmix allowed under System Settings > Privacy & Security > Screen & System Audio Recording > **System Audio Recording Only**. The daemon never taps without it, so it never raises the prompt itself; nothing else can grant it (not SSH, not a terminal-launched binary: TCC attributes those to the terminal).
+The first time a session works while music plays, macOS needs Stemmix allowed under System Settings > Privacy & Security > Screen & System Audio Recording > **System Audio Recording Only**: add `~/Applications/Stemmix.app` there with the + button. The daemon never taps before it is allowed, so no prompt appears on its own, and nothing else can raise one for it (not SSH, not a terminal-launched binary: TCC attributes those to the terminal).
 
 ## Features
 
