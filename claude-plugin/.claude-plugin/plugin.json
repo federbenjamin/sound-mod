@@ -14,7 +14,33 @@
       "title": "Player",
       "description": "Which music app the daemon taps.",
       "default": "spotify",
-      "options": ["spotify", "music"]
+      "options": [
+        "spotify",
+        "music"
+      ]
+    },
+    "mode": {
+      "type": "string",
+      "title": "Mode",
+      "description": "How the song thins out with fewer working sessions. instruments: take instruments away. muffled: keep every instrument and muffle the sound, like through a wall. both: do both.",
+      "default": "instruments",
+      "options": [
+        "instruments",
+        "muffled",
+        "both"
+      ]
+    },
+    "muffling_max": {
+      "type": "number",
+      "title": "Muffling at fewest sessions",
+      "description": "How muffled the sound is with no session working, 0 (not at all) to 10 (most). Only in the muffled and both modes.",
+      "default": 7
+    },
+    "muffling_min": {
+      "type": "number",
+      "title": "Muffling at most sessions",
+      "description": "How muffled the sound is when N sessions are working, 0 (not at all) to 10 (most). Only in the muffled and both modes.",
+      "default": 0
     }
   }
 }

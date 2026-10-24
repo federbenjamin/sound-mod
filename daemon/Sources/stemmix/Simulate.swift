@@ -6,6 +6,7 @@ struct SimulationScript: Decodable {
   struct Event: Decodable {
     let at: Double
     let stems: Int?
+    let muffleHz: Double?
     let command: String?
   }
 
@@ -56,6 +57,10 @@ func runSimulate(_ arguments: [String]) -> Int32 {
       if let stems = event.stems {
         playback.setAudible(stems)
         print(String(format: "%.2fs stems=%d", t, stems))
+      }
+      if let hz = event.muffleHz {
+        playback.setMuffling(cutoffHz: hz > 0 ? hz : nil)
+        print(String(format: "%.2fs muffleHz=%.0f", t, hz))
       }
       if let text = event.command, let command = TransportCommand(rawValue: text) {
         playback.handle(command, source: "simulate")

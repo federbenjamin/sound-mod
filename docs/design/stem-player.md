@@ -112,10 +112,25 @@ Each choice lists three options and the pick. The pick names what it took from t
 
 **Pick: A.** `install.sh` builds the Python environment with `uv` under `~/.local/share/stemmix/venv` and runs the separator's self-test once, which downloads the weights to `~/.cache/demucs-mlx`. Until the first slice arrives the cursor waits, so an attach has about 3 to 5 s of silence. While the separator is down the player waits too, and the log says why.
 
+### 10. The low-pass filter comes back as a mode (2026-10-24)
+
+The stem player replaced the first version's moving low-pass without the user asking. Asked, with both versions and their combination rendered to listen to:
+
+| Option | For | Against |
+|---|---|---|
+| A. Stems only; the filter stays gone | One audio path. | Loses a zero-delay, no-GPU way to thin the song. |
+| B. A `mode` setting: `instruments`, `muffled`, or `both` | The user picks by ear; `both` is "instruments taken away and muffled". | Two mechanisms kept alive and tested. |
+| C. Stems, with the filter covering the start-up gap | Sound from the first second. | The stems run 3 s behind live, so the hand-over repeats 3 s. |
+
+**Pick: B**, the user's ruling, with the muffling softened for `both` so drums-only is not a thud under a wall. The muffling is a 0 to 10 knob at each end: `muffling_max` with no session working and `muffling_min` with `tracks` sessions working (the user: none at all when every agent works, so 0), one pair shared by `muffled` and `both`. Level to cutoff is log-spaced from 20 kHz (0, no filter) to 150 Hz (10); the level runs in a straight line between the two ends, so max 10 and min 0 reproduce the first version's cutoffs exactly (510 Hz, 1.7 kHz, 5.9 kHz for 1, 2, 3 of 4). Default max 7: about 1.5 kHz at one of four, 3.6 kHz at two, 8.5 kHz at three, close to the softened clips the user heard (1.8 / 4 / 8.9 kHz).
+
+One render path for every mode: the separator runs, `muffled` plays all four stems through the filter, `both` plays the k stems through it, `instruments` skips the filter. The filter is the first version's Linkwitz-Riley 4th-order low-pass (two cascaded Butterworth biquads per channel), after the stem mix, with the cutoff gliding to a new target over 0.1 s in the log domain. The start-up gap is left as it is: the user calls it buffering time and wants a clear signal there later, not the filter. Cost accepted: in `muffled` mode the separator does work nobody hears.
+
 ## Behaviour summary
 
 - Attached (a live session and the player outputting): Spotify is muted at the source. The recording runs. The cursor starts at the recording head and plays once stems exist (about 2.6 s).
 - k = 0: the cursor keeps moving, gain 0. Unchanged from today.
+- `mode`: `instruments` thins by stems; `muffled` plays all four stems low-passed; `both` plays the k stems low-passed. The cutoff for k of N runs from `muffling_max` to `muffling_min` (choice 10).
 - Pause (key, Spotify, or command): a 10 ms fade, then the cursor stops. The recording continues.
 - Play: from the cursor.
 - Next: the next song start in the buffer, else the live edge. Previous: the start of the current song if it's buffered.

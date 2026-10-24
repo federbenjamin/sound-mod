@@ -18,10 +18,10 @@ git clone https://github.com/federbenjamin/sound-mod && cd sound-mod && ./instal
 
 Builds the separator's Python environment in `~/.local/share/stemmix/venv` and runs its self-test (the first run downloads the model weights to `~/.cache/demucs-mlx`), builds and signs the daemon as `~/Applications/Stemmix.app`, and installs the launchd agent, which starts it now and at every login.
 
-Then install one session source; each carries the same two settings, `tracks` and `player`:
+Then install one session source; each carries the same settings: `tracks`, `player`, `mode`, `muffling_max`, `muffling_min` (what they do: Configuration below):
 
-- Claude Code: add this repo as a plugin marketplace and enable `stemmix@sound-mod` (`/plugin marketplace add <path or owner/repo>`, then `/plugin install stemmix@sound-mod`). Settings, in `/config`: `tracks` (N, the number of working sessions at which you hear the whole song; default 4) and `player` (`spotify` or `music`).
-- herdr: `herdr plugin link <this repo>/herdr-plugin` (or `herdr plugin install <owner>/sound-mod/herdr-plugin` from GitHub). herdr starts it with its server; to start it now, `herdr plugin action invoke restart --plugin stemmix`. Settings: `tracks = 4` and `player = "spotify"` in `config.toml` in the folder `herdr plugin config-dir stemmix` prints. Needs macOS's own `/usr/bin/python3` (Xcode Command Line Tools).
+- Claude Code: add this repo as a plugin marketplace and enable `stemmix@sound-mod` (`/plugin marketplace add <path or owner/repo>`, then `/plugin install stemmix@sound-mod`). Settings, in `/config`.
+- herdr: `herdr plugin link <this repo>/herdr-plugin` (or `herdr plugin install <owner>/sound-mod/herdr-plugin` from GitHub). herdr starts it with its server; to start it now, `herdr plugin action invoke restart --plugin stemmix`. Settings: one `key = value` per line in `config.toml` in the folder `herdr plugin config-dir stemmix` prints, for example `tracks = 4`, `mode = "both"`. Needs macOS's own `/usr/bin/python3` (Xcode Command Line Tools).
 
 The first time a session works while music plays, macOS needs Stemmix allowed under System Settings > Privacy & Security > Screen & System Audio Recording > **System Audio Recording Only**: add `~/Applications/Stemmix.app` there with the + button. The daemon never taps before it is allowed, so no prompt appears on its own, and nothing else can raise one for it (not SSH, not a terminal-launched binary: TCC attributes those to the terminal).
 
@@ -31,6 +31,7 @@ The first time a session works while music plays, macOS needs Stemmix allowed un
 - **Pause that lands at once.** Pause stops the sound immediately while the music keeps being recorded, so play resumes where you paused. Next and previous move between the songs in the buffer.
 - **Media keys, Control Center and headphone buttons.** While attached, the daemon is the system's Now Playing app, and pausing or playing in Spotify itself does the same to the daemon. Known limits below lists what is still unchecked.
 - **Two session sources.** A Claude Code plugin counts Claude Code sessions in any terminal; a herdr plugin counts every top-level agent pane herdr shows as working.
+- **Thin the song your way.** Take instruments away as fewer sessions work (the default), or keep every instrument and muffle the sound like through a wall, or both at once. How muffled it gets at the quietest end is a 0 to 10 setting.
 - **Nothing to switch off.** While no session is open at all, the tap is released and the player sounds normal. With sessions open but none working, you hear silence while the music keeps playing underneath.
 
 ## Usage
@@ -49,7 +50,19 @@ From a terminal or a hotkey tool:
 tail -f ~/.local/state/stemmix/stemmix.log
 ```
 
-One line per event: `start`, `attach`, `detach reason=…`, `count working=… stems=…`, `transport source=… command=… action=…`, `player-event …` (the player's own play state and track changes), `separator ready|start-failed|request-failed`, and every 10 s a `level` line: input and output level, `state`, `behind` (how far the cursor plays behind the recording), `separated-ahead`, `waited` (silence while stems were not ready), and the separator's median time per window. The separator's own output: `separator.log` beside it. The herdr plugin logs to `herdr-bridge.log` beside it: one line per change in the working count.
+One line per event: `start`, `attach`, `detach reason=…`, `count working=… mode=… stems=… muffle=…`, `transport source=… command=… action=…`, `player-event …` (the player's own play state and track changes), `separator ready|start-failed|request-failed`, and every 10 s a `level` line: input and output level, `state`, `behind` (how far the cursor plays behind the recording), `separated-ahead`, `waited` (silence while stems were not ready), and the separator's median time per window. The separator's own output: `separator.log` beside it. The herdr plugin logs to `herdr-bridge.log` beside it: one line per change in the working count.
+
+## Configuration
+
+Five settings, the same in both session sources:
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `tracks` | `4` | N: how many working sessions it takes to hear the whole song. |
+| `player` | `spotify` | `spotify` or `music`: which app the daemon taps. |
+| `mode` | `instruments` | How the song thins with fewer working sessions. `instruments`: with k of N working you hear the first ceil(4k/N) of drums, bass, other, vocals. `muffled`: every instrument plays, low-passed. `both`: the k instruments, low-passed. |
+| `muffling_max` | `7` | How muffled the sound is with no session working, 0 (not at all) to 10 (most, a 150 Hz cutoff). Muffled and both modes only. |
+| `muffling_min` | `0` | How muffled it is with N sessions working. 0 means the full sound. Between the two the muffling runs in a straight line, so with the defaults one of four working sessions is cut off at about 1.5 kHz, two at 3.6 kHz, three at 8.5 kHz. |
 
 ## How it works
 

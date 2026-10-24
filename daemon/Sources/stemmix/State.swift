@@ -10,6 +10,29 @@ struct SessionFile: Decodable, Equatable {
 struct ConfigFile: Decodable, Equatable {
   let tracks: Int
   let player: String
+  let mode: ListeningMode
+  let mufflingMax: Double
+  let mufflingMin: Double
+
+  init(tracks: Int, player: String, mode: ListeningMode = Config.defaultMode, mufflingMax: Double = Config.defaultMufflingMax, mufflingMin: Double = Config.defaultMufflingMin) {
+    self.tracks = tracks
+    self.player = player
+    self.mode = mode
+    self.mufflingMax = mufflingMax
+    self.mufflingMin = mufflingMin
+  }
+
+  private enum Key: String, CodingKey { case tracks, player, mode, muffling_max, muffling_min }
+
+  /// A key a source does not write yet takes its default, so an older plugin still drives a newer daemon.
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: Key.self)
+    tracks = try c.decodeIfPresent(Int.self, forKey: .tracks) ?? Config.defaultTracks
+    player = try c.decodeIfPresent(String.self, forKey: .player) ?? Config.defaultPlayer
+    mode = try c.decodeIfPresent(ListeningMode.self, forKey: .mode) ?? Config.defaultMode
+    mufflingMax = try c.decodeIfPresent(Double.self, forKey: .muffling_max) ?? Config.defaultMufflingMax
+    mufflingMin = try c.decodeIfPresent(Double.self, forKey: .muffling_min) ?? Config.defaultMufflingMin
+  }
 }
 
 struct Counts: Equatable {

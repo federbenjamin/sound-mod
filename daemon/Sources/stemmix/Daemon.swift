@@ -10,6 +10,7 @@ final class Daemon {
   private var playback: Playback?
   private var nowPlaying: NowPlaying?
   private var lastAudible: Int?
+  private var lastCutoff: Double??
   private var lastCounts: Counts?
   private var lastSessions: [String: Bool] = [:]
   private var lastLiveAt = Date.distantPast
@@ -113,12 +114,16 @@ final class Daemon {
         silentSince = nil
       }
     }
-    let audible = audibleStems(working: counts.working, tracks: config.tracks)
-    if audible != lastAudible || counts != lastCounts {
+    let audible = audibleStems(mode: config.mode, working: counts.working, tracks: config.tracks)
+    let cutoff = mufflingCutoffHz(config: config, working: counts.working)
+    if audible != lastAudible || cutoff != lastCutoff || counts != lastCounts {
       playback.setAudible(audible)
+      playback.setMuffling(cutoffHz: cutoff)
       let names = Stem.allCases.prefix(audible).map(\.name).joined(separator: "+")
-      Log.line("count working=\(counts.working) live=\(counts.live) tracks=\(config.tracks) stems=\(audible) (\(names.isEmpty ? "silent" : names))")
+      let muffle = cutoff.map { String(format: "%.0fHz", $0) } ?? "none"
+      Log.line("count working=\(counts.working) live=\(counts.live) tracks=\(config.tracks) mode=\(config.mode.rawValue) stems=\(audible) (\(names.isEmpty ? "silent" : names)) muffle=\(muffle)")
       lastAudible = audible
+      lastCutoff = .some(cutoff)
       lastCounts = counts
     }
     let song = playback.currentSong
@@ -141,6 +146,7 @@ final class Daemon {
       self.tap = tap
       self.playback = playback
       lastAudible = nil
+      lastCutoff = nil
       lastSong = nil
       lastPlaying = nil
       nowPlaying?.claim()
@@ -187,6 +193,7 @@ final class Daemon {
     tap = nil
     playback = nil
     lastAudible = nil
+    lastCutoff = nil
     Log.line("detach reason=\(reason)")
   }
 

@@ -10,6 +10,8 @@ final class Player: @unchecked Sendable {
 
   /// How many stems to hear (0...4), set by the control loop.
   let audible = Atomic<Int>(0)
+  /// The low-pass cutoff to glide to, in millihertz; 0 is no filter. Set by the control loop.
+  let cutoffMilliHz = Atomic<Int>(0)
   /// Whether the player is playing (true) or paused, as the IO thread last applied it.
   let playing = Atomic<Bool>(true)
   /// Frames rendered as silence while playing because separated audio was not ready.
@@ -27,6 +29,9 @@ final class Player: @unchecked Sendable {
   private let gains: UnsafeMutablePointer<Float>
   private var wantPlaying = true
   private var fade: Float = 0
+  private var lowPass = LowPass(channels: Timeline.channels)
+  /// The cutoff the filter is at, gliding toward the target; 0 while bypassed.
+  private var cutoffHz = 0.0
 
   init(timeline: Timeline) {
     self.timeline = timeline
@@ -68,6 +73,7 @@ final class Player: @unchecked Sendable {
       cursor = min(max(code >> 2, oldestPlayable), head)
       timeline.jump(to: cursor)
       fade = 0
+      lowPass.reset()
     default: break
     }
     // A pause longer than the recording holds: the oldest audio is dropped, so the cursor moves up with it.
@@ -86,6 +92,7 @@ final class Player: @unchecked Sendable {
     guard wantPlaying || fade > 0 else { return }
 
     let audibleCount = audible.load(ordering: .relaxed)
+    let filterOn = glideCutoff(frames: frames)
     let first = outputs[0]
     guard let data = first.mData else { return }
     let out = data.assumingMemoryBound(to: Float.self)
@@ -107,8 +114,9 @@ final class Player: @unchecked Sendable {
         let bass = timeline.separated(1, frame, channel)
         let vocals = timeline.separated(2, frame, channel)
         let other = mix - drums - bass - vocals
-        let value = fade * (gains[Stem.drums.rawValue] * drums + gains[Stem.bass.rawValue] * bass
+        var value = fade * (gains[Stem.drums.rawValue] * drums + gains[Stem.bass.rawValue] * bass
           + gains[Stem.other.rawValue] * other + gains[Stem.vocals.rawValue] * vocals)
+        if filterOn { value = lowPass.process(channel: channel, value) }
         out[i * channels + channel] = value
         sumSq += value * value
       }
@@ -124,6 +132,29 @@ final class Player: @unchecked Sendable {
     timeline.cursor.store(cursor, ordering: .releasing)
     outputSumSq.wrappingAdd(UInt64(Double(sumSq) * 1_048_576), ordering: .relaxed)
     outputSamples.wrappingAdd(played * min(channels, Timeline.channels), ordering: .relaxed)
+  }
+
+  /// Moves the filter's cutoff toward the target over `mufflingGlideSeconds` (in the log domain, so a jump
+  /// sounds even) and sets the coefficients for this cycle. Entering from bypass starts at the ceiling with a
+  /// fresh state; leaving glides up to the ceiling, then bypasses. Returns whether to filter this cycle.
+  private func glideCutoff(frames: Int) -> Bool {
+    let rate = Double(timeline.rate)
+    let ceiling = Config.mufflingCeilingHz
+    let target = Double(cutoffMilliHz.load(ordering: .relaxed)) / 1000
+    if target <= 0, cutoffHz <= 0 { return false }
+    if cutoffHz <= 0 {
+      cutoffHz = ceiling
+      lowPass.reset()
+    }
+    let goal = target > 0 ? min(target, ceiling) : ceiling
+    let step = 1 - exp(-Double(frames) / (Config.mufflingGlideSeconds * rate))
+    cutoffHz = exp(log(cutoffHz) + (log(goal) - log(cutoffHz)) * step)
+    if target <= 0, cutoffHz >= ceiling * 0.95 {
+      cutoffHz = 0
+      return false
+    }
+    lowPass.set(hz: cutoffHz, rate: rate)
+    return true
   }
 
   private func record(_ input: UnsafePointer<AudioBufferList>, frames: Int) {

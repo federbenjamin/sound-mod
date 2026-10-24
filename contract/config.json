@@ -1,1 +1,1 @@
-{ "tracks": 4, "player": "spotify" }
+{ "tracks": 4, "player": "spotify", "mode": "instruments", "muffling_max": 7, "muffling_min": 0 }

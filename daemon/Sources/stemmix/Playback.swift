@@ -51,6 +51,9 @@ final class Playback {
 
   func setAudible(_ count: Int) { player.audible.store(count, ordering: .relaxed) }
 
+  /// The low-pass cutoff the player glides to; nil for no filter.
+  func setMuffling(cutoffHz: Double?) { player.cutoffMilliHz.store(Int(((cutoffHz ?? 0) * 1000).rounded()), ordering: .relaxed) }
+
   /// The song under the cursor, if its start was seen.
   var currentSong: TrackMark? {
     let cursor = timeline.cursor.load(ordering: .relaxed)

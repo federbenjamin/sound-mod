@@ -169,3 +169,39 @@ final class PlayerTests: XCTestCase {
     XCTAssertEqual(t.recorded(head - 20_000, 0), Float(25_000 - 20_000 + 1))
   }
 }
+
+final class PlayerMufflingTests: XCTestCase {
+  /// RMS of the last second of a 10 kHz recording played back with `cutoffMilliHz` set.
+  private func tailRms(cutoffMilliHz: Int) -> Double {
+    let rate = 48_000
+    let frames = rate * 2
+    let t = Timeline(rate: rate, recordingSeconds: 10, stemsSeconds: 5)
+    var rec = [Float]()
+    for f in 0..<frames {
+      let v = Float(sin(2 * Double.pi * 10_000 * Double(f) / Double(rate)))
+      rec += [v, v]
+    }
+    rec.withUnsafeBufferPointer { t.record(interleaved: $0.baseAddress!, frames: frames) }
+    let silentStems = [Float](repeating: 0, count: frames * 2 * 3)
+    silentStems.withUnsafeBufferPointer { t.writeSlice(at: 0, frames: frames, fade: 0, first: true, from: $0.baseAddress!) }
+    t.publishFrontier(frames, generation: 0)
+    let p = Player(timeline: t)
+    p.audible.store(4, ordering: .relaxed)
+    p.cutoffMilliHz.store(cutoffMilliHz, ordering: .relaxed)
+    var sum = 0.0, count = 0
+    for block in 0..<190 {
+      let out = render(p, frames: 480)
+      if block * 480 >= rate {
+        for v in out { sum += Double(v) * Double(v); count += 1 }
+      }
+    }
+    return (sum / Double(count)).squareRoot()
+  }
+
+  func testACutoffAt1kHzSilencesARecorded10kHzTone() {
+    let open = tailRms(cutoffMilliHz: 0)
+    let filtered = tailRms(cutoffMilliHz: 1_000_000)
+    XCTAssertGreaterThan(open, 0.5)
+    XCTAssertLessThan(20 * log10(filtered / open), -40)
+  }
+}
