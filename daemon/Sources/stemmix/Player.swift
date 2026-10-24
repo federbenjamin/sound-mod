@@ -46,12 +46,23 @@ final class Player: @unchecked Sendable {
   deinit { gains.deallocate() }
 
   /// Hands an action to the IO thread; it applies the latest one at the start of its next cycle.
+  /// A play state and a seek sent before the same cycle both apply: `pending` holds the state in bits 0-1
+  /// (1 pause, 2 play), a seek flag in bit 2 and the seek's frame above it.
   func send(_ action: TransportAction) {
     switch action {
-    case .none: return
-    case .pause: pending.store(1, ordering: .releasing)
-    case .play: pending.store(2, ordering: .releasing)
-    case let .seek(frame): pending.store(3 | (max(frame, 0) << 2), ordering: .releasing)
+    case .none, .skipPlayer: return
+    case .pause: merge { ($0 & ~3) | 1 }
+    case .play: merge { ($0 & ~3) | 2 }
+    case let .seek(frame): merge { ($0 & 3) | 4 | (max(frame, 0) << 3) }
+    }
+  }
+
+  private func merge(_ update: (Int) -> Int) {
+    var old = pending.load(ordering: .relaxed)
+    while true {
+      let (exchanged, current) = pending.compareExchange(expected: old, desired: update(old), ordering: .acquiringAndReleasing)
+      if exchanged { return }
+      old = current
     }
   }
 
@@ -66,15 +77,17 @@ final class Player: @unchecked Sendable {
 
     // Once the recording wraps, the oldest `guardFrames` are about to be overwritten: never play or separate there.
     let oldestPlayable = timeline.oldestRecorded(head: head) + (head > timeline.recordingCapacity ? guardFrames : 0)
-    switch pending.exchange(0, ordering: .acquiring) {
+    let code = pending.exchange(0, ordering: .acquiring)
+    switch code & 3 {
     case 1: wantPlaying = false
     case 2: wantPlaying = true
-    case let code where code & 3 == 3:
-      cursor = min(max(code >> 2, oldestPlayable), head)
+    default: break
+    }
+    if code & 4 != 0 {
+      cursor = min(max(code >> 3, oldestPlayable), head)
       timeline.jump(to: cursor)
       fade = 0
       lowPass.reset()
-    default: break
     }
     // A pause longer than the recording holds: the oldest audio is dropped, so the cursor moves up with it.
     if cursor < oldestPlayable {

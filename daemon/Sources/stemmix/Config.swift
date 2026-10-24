@@ -65,6 +65,15 @@ enum Config {
   static let skipBeforeEndSeconds = 5.0
   // "Previous" within this far into a song goes to the song before it.
   static let previousRestartSeconds = 3.0
+  // "Next" with no later song recorded asks the player to skip; the cursor waits this long for its track change.
+  static let forwardedSkipTimeout: TimeInterval = 3
+  // How long the player may take to answer its "next track" Apple event.
+  static let playerControlTimeout: TimeInterval = 2
+  // Each player's bundle ID and the Apple event for its AppleScript "next track" (read from its sdef).
+  static let playerNextTrack: [String: (bundleID: String, eventClass: String, eventID: String)] = [
+    "spotify": ("com.spotify.client", "spfy", "Next"),
+    "music": ("com.apple.Music", "hook", "Next"),
+  ]
 
   static let controlNotification = Notification.Name("com.benjaminfeder.stemmix.control")
 }
