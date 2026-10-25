@@ -4,7 +4,7 @@ import AppKit
 final class StatusMenu: NSObject {
   private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
   private let onAction: (MenuAction) -> Void
-  private let info = (0..<5).map { _ in NSMenuItem(title: "", action: nil, keyEquivalent: "") }
+  private let info = (0..<MenuLayout.infoLines).map { _ in NSMenuItem(title: "", action: nil, keyEquivalent: "") }
   private var actions: [NSMenuItem] = []
   private var shown: MenuContent?
 
@@ -18,15 +18,17 @@ final class StatusMenu: NSObject {
       line.isEnabled = false
       menu.addItem(line)
     }
-    // Tags index MenuContent.items: the transport four, Open log, then Restart and Quit.
-    for index in 0..<7 {
-      if index == 0 || index == 4 || index == 5 { menu.addItem(.separator()) }
-      let action = NSMenuItem(title: "", action: #selector(clicked(_:)), keyEquivalent: "")
-      action.target = self
-      action.tag = index
-      action.isEnabled = false
-      menu.addItem(action)
-      actions.append(action)
+    // Tags index MenuContent.items, which follow the layout's groups in order.
+    for group in MenuLayout.actionGroups {
+      menu.addItem(.separator())
+      for _ in group {
+        let action = NSMenuItem(title: "", action: #selector(clicked(_:)), keyEquivalent: "")
+        action.target = self
+        action.tag = actions.count
+        action.isEnabled = false
+        menu.addItem(action)
+        actions.append(action)
+      }
     }
     item.menu = menu
   }
@@ -46,8 +48,7 @@ final class StatusMenu: NSObject {
       button.image = image
       button.appearsDisabled = content.icon == .detached
     }
-    let lines: [String?] = [content.song, content.state, content.sessions, content.stems, content.mediaKeys]
-    for (line, text) in zip(info, lines) {
+    for (line, text) in zip(info, content.lines) {
       line.title = text ?? ""
       line.isHidden = text == nil
     }

@@ -51,23 +51,19 @@ final class NowPlaying {
     }
     setInfo(title: nil, artist: nil, playing: playing)
     pulse(playing: playing)
-    watch.tookSlot(at: Self.now())
     Log.line("now-playing claimed playing=\(playing)")
   }
 
   func update(title: String?, artist: String?, playing: Bool) {
     guard claimed else { return }
     setInfo(title: title, artist: artist, playing: playing)
-    let wasPlaying = state == .playing
     set(playing ? .playing : .paused)
-    if playing, !wasPlaying { watch.tookSlot(at: Self.now()) }
   }
 
   /// Takes the slot back: one change into Playing, ending on `playing`.
   func retake(playing: Bool, reason: String) {
     guard claimed else { return }
     pulse(playing: playing)
-    watch.tookSlot(at: Self.now())
     Log.line("now-playing retaken reason=\(reason) playing=\(playing)")
   }
 
@@ -88,25 +84,23 @@ final class NowPlaying {
     }
     MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     set(.stopped)
-    watch = SlotWatch()
+    watch.released(at: Self.now())
     Log.line("now-playing released")
   }
 
   private func pathChanged() {
-    // Unclaimed, the post is release's own move back to the previous holder.
-    guard claimed, watch.pathChanged(at: Self.now()) == .held else { return }
+    // Unclaimed, the post is release's own move back to the previous holder: the watch still takes it.
+    guard watch.pathChanged(at: Self.now()) == .held, claimed else { return }
     Log.line("now-playing held")
   }
 
-  /// A same-value set never reaches mediaremoted, so pause first when the last set was Playing; the sets reach
-  /// it as separate transitions within one run-loop turn (design doc, choice 18).
   private func pulse(playing: Bool) {
-    if state == .playing { set(.paused) }
-    set(.playing)
-    if !playing { set(.paused) }
+    for newState in pulseSets(after: state, playing: playing) { set(newState) }
   }
 
+  /// The one writer of `playbackState`, and the one place a set into Playing is recorded as taking the slot.
   private func set(_ newState: MPNowPlayingPlaybackState) {
+    if takesSlot(from: state, to: newState) { watch.tookSlot(at: Self.now()) }
     MPNowPlayingInfoCenter.default().playbackState = newState
     state = newState
   }

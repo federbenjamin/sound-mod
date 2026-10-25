@@ -147,4 +147,27 @@ final class MenuTests: XCTestCase {
     XCTAssertEqual(pausedAtLive.state, "Paused, live")
     XCTAssertNil(pausedAtLive.mediaKeys)
   }
+
+  /// StatusMenu builds its items and separators once from MenuLayout, so every content must fit that layout.
+  func testEveryMenuContentFillsTheLayoutStatusMenuBuilds() {
+    let detached = [DetachReason.noSession, .playerNotRunning, .needsPermission, .attaching].map { reason in
+      MenuSnapshot(
+        attachment: .detached(reason), counts: Counts(live: 0, working: 0), player: "Spotify", audible: 0,
+        cutoffHz: nil, inputSamples: nil, mediaKeys: nil)
+    }
+    let attached = [
+      attachedSnapshot(),
+      attachedSnapshot(playing: false, available: []),
+      attachedSnapshot(available: [.live]),
+    ]
+    let layoutActions = Array(MenuLayout.actionGroups.joined())
+
+    for snapshot in detached + attached {
+      let content = menuContent(snapshot)
+      XCTAssertEqual(content.items.count, MenuLayout.actionGroups.map(\.count).reduce(0, +))
+      XCTAssertEqual(content.items.map(\.action), layoutActions)
+      XCTAssertEqual(content.lines.count, MenuLayout.infoLines)
+    }
+    XCTAssertEqual(MenuLayout.actionGroups.map(\.count), [4, 1, 2])
+  }
 }

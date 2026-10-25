@@ -81,4 +81,8 @@ enum Config {
   static let menuSymbolPaused = "pause.circle"
   // The names the menu shows for the `player` keys of config.json.
   static let playerNames: [String: String] = ["spotify": "Spotify", "music": "Music"]
+
+  /// The `player` key of config.json when stemmix knows it, else the default player. Every per-player table
+  /// (`playerBundlePrefixes`, `playerNames`, `playerNotifications`) has these keys.
+  static func knownPlayer(_ key: String) -> String { playerBundlePrefixes[key] == nil ? defaultPlayer : key }
 }

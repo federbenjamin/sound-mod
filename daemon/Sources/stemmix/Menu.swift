@@ -55,20 +55,48 @@ struct MenuContent: Equatable {
   let stems: String?
   /// nil: hidden.
   let mediaKeys: String?
-  /// Play/Pause, Next, Previous, Back to live, Open log, Restart Stemmix, Quit Stemmix.
+  /// One per action of `MenuLayout.actionGroups`, in its order.
   let items: [MenuItem]
+
+  /// The info lines in menu order, `MenuLayout.infoLines` of them; nil: hidden.
+  var lines: [String?] { [song, state, sessions, stems, mediaKeys] }
+}
+
+/// The menu's shape, built once by StatusMenu and filled by `menuContent`: the info lines, then each group of
+/// action items after a separator.
+enum MenuLayout {
+  static let infoLines = 5
+  static let actionGroups: [[MenuAction]] = [
+    [.transport(.toggle), .transport(.next), .transport(.previous), .transport(.live)],
+    [.openLog],
+    [.restart, .quit],
+  ]
+}
+
+/// One action's item; the transport items act only while attached (`playback` not nil).
+private func menuItem(_ action: MenuAction, playback: PlaybackSnapshot?) -> MenuItem {
+  switch action {
+  case let .transport(command):
+    let title: String
+    switch command {
+    case .play, .pause, .toggle: title = playback?.playing == true ? "Pause" : "Play"
+    case .next: title = "Next"
+    case .previous: title = "Previous"
+    case .live: title = "Back to live"
+    }
+    let enabled = playback.map { [.play, .pause, .toggle].contains(command) || $0.available.contains(command) } ?? false
+    return MenuItem(title: title, isEnabled: enabled, action: action)
+  case .openLog: return MenuItem(title: "Open log", isEnabled: true, action: action)
+  case .restart: return MenuItem(title: "Restart Stemmix", isEnabled: true, action: action)
+  case .quit: return MenuItem(title: "Quit Stemmix", isEnabled: true, action: action)
+  }
 }
 
 func menuContent(_ snapshot: MenuSnapshot) -> MenuContent {
   let player = snapshot.player
   let counts = snapshot.counts
   let sessions = "\(counts.working) of \(counts.live) \(counts.live == 1 ? "session" : "sessions") working"
-  let fixed = [
-    MenuItem(title: "Open log", isEnabled: true, action: .openLog),
-    MenuItem(title: "Restart Stemmix", isEnabled: true, action: .restart),
-    MenuItem(title: "Quit Stemmix", isEnabled: true, action: .quit),
-  ]
-  let seeks: [(String, TransportCommand)] = [("Next", .next), ("Previous", .previous), ("Back to live", .live)]
+  func items(_ playback: PlaybackSnapshot?) -> [MenuItem] { MenuLayout.actionGroups.joined().map { menuItem($0, playback: playback) } }
 
   switch snapshot.attachment {
   case let .detached(reason):
@@ -79,9 +107,7 @@ func menuContent(_ snapshot: MenuSnapshot) -> MenuContent {
     case .needsPermission: state = "Needs System Audio Recording permission"
     case .attaching: state = "Attaching"
     }
-    let transport = [MenuItem(title: "Play", isEnabled: false, action: .transport(.toggle))]
-      + seeks.map { MenuItem(title: $0.0, isEnabled: false, action: .transport($0.1)) }
-    return MenuContent(icon: .detached, song: "Not attached", state: state, sessions: sessions, stems: nil, mediaKeys: nil, items: transport + fixed)
+    return MenuContent(icon: .detached, song: "Not attached", state: state, sessions: sessions, stems: nil, mediaKeys: nil, items: items(nil))
 
   case let .attached(playback):
     let song: String
@@ -105,10 +131,8 @@ func menuContent(_ snapshot: MenuSnapshot) -> MenuContent {
     var stems = "Stems: \(stemNames(audible: snapshot.audible))"
     if let cutoff = snapshot.cutoffHz { stems += ", muffled at \(cutoffLabel(cutoff))" }
     let mediaKeys = snapshot.mediaKeys.map { $0 == .held ? "Media keys: Stemmix" : "Media keys: another app" }
-    let transport = [MenuItem(title: playback.playing ? "Pause" : "Play", isEnabled: true, action: .transport(.toggle))]
-      + seeks.map { MenuItem(title: $0.0, isEnabled: playback.available.contains($0.1), action: .transport($0.1)) }
     return MenuContent(
       icon: playback.playing ? .playing : .paused, song: song, state: state, sessions: sessions, stems: stems,
-      mediaKeys: mediaKeys, items: transport + fixed)
+      mediaKeys: mediaKeys, items: items(playback))
   }
 }

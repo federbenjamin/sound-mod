@@ -33,11 +33,10 @@ final class Playback {
 
   @discardableResult
   func handle(_ command: TransportCommand, source: String) -> TransportAction {
-    let head = timeline.head.load(ordering: .acquiring)
-    let cursor = timeline.cursor.load(ordering: .acquiring)
-    let action = resolve(command, cursor: cursor, head: head, playing: intendsPlaying, marks: keptMarks(head: head), rate: timeline.rate, liveLag: player.shape.liveLag)
+    let c = commandContext()
+    let action = resolve(command, cursor: c.cursor, head: c.head, playing: c.playing, marks: c.marks, rate: c.rate, liveLag: c.liveLag)
     send(action)
-    Log.line("transport source=\(source) command=\(command.rawValue) action=\(describe(action)) behind=\(seconds(head - cursor))")
+    Log.line("transport source=\(source) command=\(command.rawValue) action=\(describe(action)) behind=\(seconds(c.head - c.cursor))")
     return action
   }
 
@@ -60,24 +59,37 @@ final class Playback {
   func setMuffling(cutoffHz: Double?) { player.cutoffMilliHz.store(Int(((cutoffHz ?? 0) * 1000).rounded()), ordering: .relaxed) }
 
   /// The song under the cursor, if its start was seen.
-  var currentSong: TrackMark? {
-    let cursor = timeline.cursor.load(ordering: .relaxed)
-    return marks.last { $0.frame <= cursor }
-  }
+  var currentSong: TrackMark? { song(at: timeline.cursor.load(ordering: .relaxed)) }
 
   /// What the menu shows of this playback. Plain loads only: `status()` drains the level line's meters.
   func snapshot() -> PlaybackSnapshot {
+    let c = commandContext()
+    return PlaybackSnapshot(
+      playing: c.playing,
+      playerPaused: follower.playerPaused,
+      song: song(at: c.cursor),
+      secondsBehindLive: secondsBehindLive(cursor: c.cursor, head: c.head, rate: c.rate, liveLag: c.liveLag),
+      available: availableCommands(cursor: c.cursor, head: c.head, playing: c.playing, marks: c.marks, rate: c.rate, liveLag: c.liveLag))
+  }
+
+  /// What `resolve` reads, from one load each of the head and the cursor; the menu's `availableCommands` reads
+  /// the same, so a greyed item never disagrees with its command.
+  private struct CommandContext {
+    let head: Int
+    let cursor: Int
+    let playing: Bool
+    let marks: [TrackMark]
+    let rate: Int
+    let liveLag: Int
+  }
+
+  private func commandContext() -> CommandContext {
     let head = timeline.head.load(ordering: .acquiring)
     let cursor = timeline.cursor.load(ordering: .acquiring)
-    let rate = timeline.rate
-    let liveLag = player.shape.liveLag
-    return PlaybackSnapshot(
-      playing: intendsPlaying,
-      playerPaused: follower.playerPaused,
-      song: marks.last { $0.frame <= cursor },
-      secondsBehindLive: secondsBehindLive(cursor: cursor, head: head, rate: rate, liveLag: liveLag),
-      available: availableCommands(cursor: cursor, head: head, playing: intendsPlaying, marks: keptMarks(head: head), rate: rate, liveLag: liveLag))
+    return CommandContext(head: head, cursor: cursor, playing: intendsPlaying, marks: keptMarks(head: head), rate: timeline.rate, liveLag: player.shape.liveLag)
   }
+
+  private func song(at cursor: Int) -> TrackMark? { marks.last { $0.frame <= cursor } }
 
   /// One log line: levels, how far behind the head the cursor plays, how much is separated ahead, waits, and
   /// the separator's speed. `inputSamples` is the tap's sample count since the last call.

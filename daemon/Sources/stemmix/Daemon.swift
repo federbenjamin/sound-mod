@@ -94,14 +94,13 @@ final class Daemon {
     Log.line("quit from the menu")
     isStopping = true
     if tap != nil { detach(reason: "quit", wait: Config.exitTeardownWait) }
-    // Outside launchd the variable is "0" or absent.
-    let label = ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"] ?? ""
-    guard !label.isEmpty, label != "0" else { exit(0) }
+    guard let label = launchdLabel(environment: ProcessInfo.processInfo.environment) else { exit(0) }
     let launchctl = Process()
     launchctl.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-    launchctl.arguments = ["bootout", "gui/\(getuid())/\(label)"]
-    // launchd's SIGTERM ends this process before launchctl returns; a return means the bootout did not.
+    launchctl.arguments = bootoutArguments(uid: getuid(), label: label)
+    // After a bootout that worked, isStopping stays set until launchd's SIGTERM ends the process.
     launchctl.terminationHandler = { [weak self] process in
+      guard bootoutFailed(process) else { return }
       DispatchQueue.main.async {
         Log.line("quit-failed launchctl status=\(process.terminationStatus)")
         self?.isStopping = false
@@ -130,10 +129,10 @@ final class Daemon {
         Log.line("session id=\(id) pruned")
       }
     }
-    observePlayer(config.player)
+    let player = Config.knownPlayer(config.player)
+    observePlayer(player)
 
-    let prefix = Config.playerBundlePrefixes[config.player] ?? Config.playerBundlePrefixes[Config.defaultPlayer]!
-    let targets = playerProcessObjects(bundlePrefix: prefix)
+    let targets = playerProcessObjects(bundlePrefix: Config.playerBundlePrefixes[player]!)
     let output = OutputDevice.current()
     let sessionOpen = now.timeIntervalSince(lastLiveAt) < Config.detachAfterIdle
     let playerRunning = !targets.isEmpty
@@ -145,7 +144,7 @@ final class Daemon {
       detach(reason: !wantAttached ? "idle" : (current.targets != targets ? "player-changed" : "output-changed"))
     }
     if tap == nil, wantAttached, now >= nextAttachAt {
-      attach(targets: targets, output: output, player: config.player)
+      attach(targets: targets, output: output, player: player)
     }
 
     if let playback {
@@ -155,7 +154,7 @@ final class Daemon {
       attachment: playback.map { .attached($0.snapshot()) }
         ?? .detached(detachReason(sessionOpen: sessionOpen, playerRunning: playerRunning, permission: lastPermission)),
       counts: counts,
-      player: Config.playerNames[config.player] ?? Config.playerNames[Config.defaultPlayer]!,
+      player: Config.playerNames[player]!,
       audible: audible,
       cutoffHz: cutoff,
       inputSamples: lastInputSamples,
@@ -232,6 +231,8 @@ final class Daemon {
     } catch {
       created?.1.stop()
       created?.0.stop()
+      // ProcessTap checks the permission before anything else can fail, so it is granted now.
+      lastPermission = nil
       nextAttachAt = Date().addingTimeInterval(Config.attachRetry)
       Log.line("attach-failed player=\(player) error=\(error)")
     }
