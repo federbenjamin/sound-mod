@@ -54,6 +54,51 @@ final class TransportTests: XCTestCase {
     XCTAssertEqual(act(.previous, cursor: 5_000, marks: [mark(10_000)]), .none)
   }
 
+  // MARK: live edge
+
+  func testLiveEdgeKeepsTheConfiguredLagWithoutGoingBeforeTheRecordingStart() {
+    XCTAssertEqual(liveEdge(head: head, liveLag: liveLag), 99_500)
+    XCTAssertEqual(liveEdge(head: 400, liveLag: liveLag), 0)
+  }
+
+  func testAtLiveIncludesOneSecondBehindTheEdgeButNotOneFrameMore() {
+    XCTAssertTrue(isAtLive(cursor: 99_500, head: head, rate: rate, liveLag: liveLag))
+    XCTAssertTrue(isAtLive(cursor: 98_500, head: head, rate: rate, liveLag: liveLag))
+    XCTAssertFalse(isAtLive(cursor: 98_499, head: head, rate: rate, liveLag: liveLag))
+    XCTAssertTrue(isAtLive(cursor: 100_000, head: head, rate: rate, liveLag: liveLag))
+  }
+
+  func testSecondsBehindLiveIsZeroAtTheSharedAtLiveBoundaryAndRoundsFartherBehind() {
+    XCTAssertEqual(secondsBehindLive(cursor: 98_500, head: head, rate: rate, liveLag: liveLag), 0)
+    XCTAssertEqual(secondsBehindLive(cursor: 98_499, head: head, rate: rate, liveLag: liveLag), 1)
+    XCTAssertEqual(secondsBehindLive(cursor: 97_999, head: head, rate: rate, liveLag: liveLag), 2)
+  }
+
+  func testAvailableCommandsAreExactlyTheResolverCommandsThatWouldAct() {
+    let cases: [(cursor: Int, playing: Bool, marks: [TrackMark])] = [
+      (99_500, true, []),
+      (50_000, true, []),
+      (50_000, false, [mark(10_000), mark(70_000)]),
+      (21_000, true, [mark(10_000), mark(20_000)]),
+    ]
+
+    for testCase in cases {
+      let commands: [TransportCommand] = [.next, .previous, .live]
+      let expected = Set(commands.filter {
+        act($0, cursor: testCase.cursor, playing: testCase.playing, marks: testCase.marks) != .none
+      })
+      XCTAssertEqual(
+        availableCommands(
+          cursor: testCase.cursor,
+          head: head,
+          playing: testCase.playing,
+          marks: testCase.marks,
+          rate: rate,
+          liveLag: liveLag),
+        expected)
+    }
+  }
+
   // MARK: notification parsing
 
   private let spotify: [AnyHashable: Any] = [
