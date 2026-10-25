@@ -21,7 +21,7 @@ final class Playback {
     // live edge instead of that far behind.
     worker = SeparationWorker(timeline: timeline) { [timeline] in
       let head = timeline.head.load(ordering: .acquiring)
-      player.send(.seek(max(0, head - player.shape.liveLag)))
+      player.send(.seek(liveEdge(head: head, liveLag: player.shape.liveLag)))
       Log.line("separator first-ready: cursor to the live edge (recorded \(String(format: "%.2fs", Double(head) / Double(timeline.rate))))")
     }
   }
@@ -45,7 +45,7 @@ final class Playback {
   func handle(_ event: PlayerEvent, now: TimeInterval) -> PlayerFollower.Reaction {
     let head = timeline.head.load(ordering: .acquiring)
     let cursor = timeline.cursor.load(ordering: .acquiring)
-    let behindLive = head - cursor > player.shape.liveLag + timeline.rate
+    let behindLive = !isAtLive(cursor: cursor, head: head, rate: timeline.rate, liveLag: player.shape.liveLag)
     let reaction = follower.handle(event, now: now, head: head, behindLive: behindLive)
     if let mark = reaction.mark { marks.append(mark) }
     marks = keptMarks(head: head)
@@ -63,6 +63,20 @@ final class Playback {
   var currentSong: TrackMark? {
     let cursor = timeline.cursor.load(ordering: .relaxed)
     return marks.last { $0.frame <= cursor }
+  }
+
+  /// What the menu shows of this playback. Plain loads only: `status()` drains the level line's meters.
+  func snapshot() -> PlaybackSnapshot {
+    let head = timeline.head.load(ordering: .acquiring)
+    let cursor = timeline.cursor.load(ordering: .acquiring)
+    let rate = timeline.rate
+    let liveLag = player.shape.liveLag
+    return PlaybackSnapshot(
+      playing: intendsPlaying,
+      playerPaused: follower.playerPaused,
+      song: marks.last { $0.frame <= cursor },
+      secondsBehindLive: secondsBehindLive(cursor: cursor, head: head, rate: rate, liveLag: liveLag),
+      available: availableCommands(cursor: cursor, head: head, playing: intendsPlaying, marks: keptMarks(head: head), rate: rate, liveLag: liveLag))
   }
 
   /// One log line: levels, how far behind the head the cursor plays, how much is separated ahead, waits, and

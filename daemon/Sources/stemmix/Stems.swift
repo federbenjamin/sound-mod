@@ -15,3 +15,9 @@ func audibleStems(working k: Int, tracks n: Int) -> Int {
   let all = Stem.allCases.count
   return min(all, (k * all + n - 1) / n)
 }
+
+/// The audible stems by name joined with "+" ("drums+bass"), "silent" at 0; clamped to 0...4.
+func stemNames(audible: Int) -> String {
+  let names = Stem.allCases.prefix(max(0, audible)).map(\.name)
+  return names.isEmpty ? "silent" : names.joined(separator: "+")
+}

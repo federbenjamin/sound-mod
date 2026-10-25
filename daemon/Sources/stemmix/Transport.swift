@@ -1,6 +1,6 @@
 import Foundation
 
-/// A request to the player, from any source: media keys, the music player's own state, or `--control`.
+/// A request to the player, from any source: media keys, the music player's own state, the menu bar, or `--control`.
 enum TransportCommand: String, CaseIterable {
   case play, pause, toggle, next, previous, live
 }
@@ -20,18 +20,33 @@ struct TrackMark: Equatable {
   let artist: String
 }
 
+/// The frame the cursor plays at when live: `liveLag` behind the recording head, never below 0.
+func liveEdge(head: Int, liveLag: Int) -> Int { max(0, head - liveLag) }
+
+/// Whether the cursor is within one second (`rate` frames) of the live edge, or past it.
+func isAtLive(cursor: Int, head: Int, rate: Int, liveLag: Int) -> Bool {
+  cursor >= liveEdge(head: head, liveLag: liveLag) - rate
+}
+
+/// Whole seconds the cursor plays behind the live edge, rounded; 0 exactly when `isAtLive`.
+func secondsBehindLive(cursor: Int, head: Int, rate: Int, liveLag: Int) -> Int {
+  guard !isAtLive(cursor: cursor, head: head, rate: rate, liveLag: liveLag) else { return 0 }
+  return Int((Double(liveEdge(head: head, liveLag: liveLag) - cursor) / Double(rate)).rounded())
+}
+
 /// What a command means at this moment. `marks` are the song starts the recording still holds, in order.
 func resolve(_ command: TransportCommand, cursor: Int, head: Int, playing: Bool, marks: [TrackMark], rate: Int, liveLag: Int) -> TransportAction {
-  let liveEdge = max(0, head - liveLag)
+  let edge = liveEdge(head: head, liveLag: liveLag)
+  let atLive = isAtLive(cursor: cursor, head: head, rate: rate, liveLag: liveLag)
   switch command {
   case .play: return .play
   case .pause: return .pause
   case .toggle: return playing ? .pause : .play
   case .live:
-    return cursor >= liveEdge - rate ? .none : .seek(liveEdge)
+    return atLive ? .none : .seek(edge)
   case .next:
-    if let mark = marks.first(where: { $0.frame > cursor + rate && $0.frame < liveEdge }) { return .seek(mark.frame) }
-    return cursor >= liveEdge - rate ? .none : .seek(liveEdge)
+    if let mark = marks.first(where: { $0.frame > cursor + rate && $0.frame < edge }) { return .seek(mark.frame) }
+    return atLive ? .none : .seek(edge)
   case .previous:
     let started = marks.filter { $0.frame <= cursor }
     guard let current = started.last else { return .none }
@@ -39,6 +54,13 @@ func resolve(_ command: TransportCommand, cursor: Int, head: Int, playing: Bool,
     if cursor - current.frame < restart, started.count >= 2 { return .seek(started[started.count - 2].frame) }
     return .seek(current.frame)
   }
+}
+
+/// Which of next, previous and live would act now: those `resolve` maps to anything but `.none`.
+func availableCommands(cursor: Int, head: Int, playing: Bool, marks: [TrackMark], rate: Int, liveLag: Int) -> Set<TransportCommand> {
+  Set([TransportCommand.next, .previous, .live].filter {
+    resolve($0, cursor: cursor, head: head, playing: playing, marks: marks, rate: rate, liveLag: liveLag) != .none
+  })
 }
 
 /// One state change of the music player, parsed from its distributed notification.
@@ -90,6 +112,9 @@ struct PlayerFollower {
   private var trackID: String?
   private var trackStartedAt: TimeInterval?
   private var trackDuration: Double?
+
+  /// The player's last reported state is paused or stopped.
+  var playerPaused: Bool { lastState == .paused || lastState == .stopped }
 
   struct Reaction: Equatable {
     var action: TransportAction = .none
