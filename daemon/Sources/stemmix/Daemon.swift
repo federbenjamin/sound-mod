@@ -15,6 +15,7 @@ final class Daemon {
   private var lastCutoff: Double??
   private var lastCounts: Counts?
   private var lastSessions: [String: Bool] = [:]
+  private var workingEase = WorkingEase()
   private var lastLiveAt = Date.distantPast
   private var nextAttachAt = Date.distantPast
   private var nextLevelAt = Date.distantPast
@@ -120,7 +121,8 @@ final class Daemon {
     let now = Date()
     let config = reader.config()
     let sessions = reader.sessions()
-    let counts = summarize(sessions: Array(sessions.values), nowMs: now.timeIntervalSince1970 * 1000, staleMs: Config.sessionStaleMs)
+    let counts = workingEase.summarize(
+      sessions: sessions, nowMs: now.timeIntervalSince1970 * 1000, staleMs: Config.sessionStaleMs, holdSeconds: Config.workingHoldSeconds)
     logSessionChanges(sessions)
     if counts.live > 0 { lastLiveAt = now }
     if now >= nextPruneAt {
