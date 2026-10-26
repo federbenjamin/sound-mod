@@ -21,6 +21,8 @@ final class Player: @unchecked Sendable {
   let inputSamples = Atomic<Int>(0)
   let outputSumSq = Atomic<UInt64>(0)
   let outputSamples = Atomic<Int>(0)
+  /// Output samples past full scale (|x| > 1) since the last read: they clip at the device.
+  let clippedSamples = Atomic<Int>(0)
 
   private let pending = Atomic<Int>(0)
   private let fadeStep: Float
@@ -128,6 +130,7 @@ final class Player: @unchecked Sendable {
     let outFrames = min(frames, Int(first.mDataByteSize) / max(channels * MemoryLayout<Float>.size, 1))
     var played = 0
     var sumSq: Float = 0
+    var clipped = 0
     for i in 0..<outFrames {
       fade = wantPlaying ? min(1, fade + fadeStep) : max(0, fade - fadeStep)
       if fade == 0, !wantPlaying { break }
@@ -147,6 +150,7 @@ final class Player: @unchecked Sendable {
         if filterOn { value = lowPass.process(channel: channel, value) }
         out[i * channels + channel] = value
         sumSq += value * value
+        if abs(value) > 1 { clipped += 1 }
       }
       if channels > Timeline.channels {
         for channel in Timeline.channels..<channels { out[i * channels + channel] = out[i * channels + channel % Timeline.channels] }
@@ -159,6 +163,7 @@ final class Player: @unchecked Sendable {
     cursor += played
     timeline.cursor.store(cursor, ordering: .releasing)
     outputSumSq.wrappingAdd(UInt64(Double(sumSq) * 1_048_576), ordering: .relaxed)
+    if clipped > 0 { clippedSamples.wrappingAdd(clipped, ordering: .relaxed) }
     outputSamples.wrappingAdd(played * min(channels, Timeline.channels), ordering: .relaxed)
   }
 
