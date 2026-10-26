@@ -128,9 +128,32 @@ final class PlayerTests: XCTestCase {
     XCTAssertEqual(t.generation.load(ordering: .relaxed), 1)
     // The old generation's frontier is stale: wait for the worker.
     XCTAssertTrue(out.allSatisfy { $0 == 0 })
-    t.publishFrontier(2000, generation: 1)
+    t.publishFrontier(5500, generation: 1)
     render(p, frames: 100)
     XCTAssertEqual(t.cursor.load(ordering: .relaxed), 600)
+  }
+
+  func testPlaybackWaitsForThePrebufferAtStartAndAfterAStall() {
+    let (t, p) = makeRig()
+    p.audible.store(4, ordering: .relaxed)
+    p.send(.seek(1000))
+    t.publishFrontier(5000, generation: 1)
+    XCTAssertTrue(render(p, frames: 100).allSatisfy { $0 == 0 })
+    XCTAssertEqual(t.cursor.load(ordering: .relaxed), 1000)
+    XCTAssertEqual(p.waitingFrames.load(ordering: .relaxed), 100)
+    t.publishFrontier(6000, generation: 1)
+    render(p, frames: 100)
+    XCTAssertEqual(t.cursor.load(ordering: .relaxed), 1100)
+    // Primed, it plays down to the frontier; a stall there waits for the full prebuffer again.
+    _ = play(p, t, blocks: 49)
+    XCTAssertEqual(t.cursor.load(ordering: .relaxed), 6000)
+    render(p, frames: 100)
+    t.publishFrontier(10_000, generation: 1)
+    render(p, frames: 100)
+    XCTAssertEqual(t.cursor.load(ordering: .relaxed), 6000)
+    t.publishFrontier(11_000, generation: 1)
+    render(p, frames: 100)
+    XCTAssertEqual(t.cursor.load(ordering: .relaxed), 6100)
   }
 
   // Both sent before one IO cycle (a forwarded skip yields a play state and a seek together): neither may be lost.
@@ -179,14 +202,17 @@ final class PlayerTests: XCTestCase {
     XCTAssertEqual(t.cursor.load(ordering: .relaxed), 0)
   }
 
-  func testCursorOlderThanTheKeptRecordingPlusGuardIsMovedUp() {
+  func testCursorOlderThanTheKeptRecordingPlusGuardIsMovedUpInTheSameGeneration() {
     let (t, p) = makeRig(recordingSeconds: 20)  // capacity 20000, guard 15000
     p.audible.store(4, ordering: .relaxed)
     // One long cycle takes the head to 5000 + 25000 = 30000: oldest kept 10000, playable from 25000.
     render(p, frames: 25_000)
     XCTAssertEqual(t.head.load(ordering: .relaxed), 30_000)
     XCTAssertEqual(t.cursor.load(ordering: .relaxed), 25_000)
-    XCTAssertEqual(t.generation.load(ordering: .relaxed), 1)
+    // Every later cycle moves it again; a new generation each time would make every slice in flight stale.
+    render(p, frames: 100)
+    XCTAssertEqual(t.cursor.load(ordering: .relaxed), 25_100)
+    XCTAssertEqual(t.generation.load(ordering: .relaxed), 0)
   }
 
   func testRecordingWrapKeepsRoundTrippingThroughRender() {
@@ -205,8 +231,8 @@ final class PlayerMufflingTests: XCTestCase {
   /// RMS of the last second of a 10 kHz recording played back with `cutoffMilliHz` set.
   private func tailRms(cutoffMilliHz: Int) -> Double {
     let rate = 48_000
-    let frames = rate * 2
-    let t = Timeline(rate: rate, recordingSeconds: 10, stemsSeconds: 5)
+    let frames = rate * 6
+    let t = Timeline(rate: rate, recordingSeconds: 10, stemsSeconds: 10)
     var rec = [Float]()
     for f in 0..<frames {
       let v = Float(sin(2 * Double.pi * 10_000 * Double(f) / Double(rate)))

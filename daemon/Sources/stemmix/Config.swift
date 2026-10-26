@@ -12,7 +12,7 @@ enum Config {
   static let pollInterval: TimeInterval = 0.25
   static let sessionStaleMs: Double = 6_000
   // A session counts as working until it has been not-working this long: agents idle a second or two between turns.
-  static let workingHoldSeconds: Double = 10
+  static let workingHoldSeconds: Double = 5
   static let sessionFileMaxAgeMs: Double = 24 * 3_600_000
   static let detachAfterIdle: TimeInterval = 60
   static let attachRetry: TimeInterval = 5
@@ -57,9 +57,11 @@ enum Config {
   static let computeMarginSeconds = 0.25
 
   // The timeline: how much recording is kept for a paused player, and how much separated audio is held.
-  static let recordingSeconds = 600.0
+  static let recordingSeconds = 360.0
   static let recordingGuardSeconds = 15.0
   static let stemsSeconds = 20.0
+  // Separated audio ahead of the cursor before playback starts, and again after a stall.
+  static let prebufferSeconds = 5.0
 
   static let stemRampSeconds = 0.4
   static let transportFadeSeconds = 0.01

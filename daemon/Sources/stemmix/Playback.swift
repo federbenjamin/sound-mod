@@ -24,7 +24,7 @@ final class Playback {
     self.player = player
     // The separator's cold start takes seconds; the cursor waited at the attach point meanwhile. Start at the
     // live edge instead of that far behind.
-    worker = SeparationWorker(timeline: timeline) { [timeline] in
+    worker = SeparationWorker(timeline: timeline, isPlaying: { player.playing.load(ordering: .relaxed) }) { [timeline] in
       let head = timeline.head.load(ordering: .acquiring)
       player.send(.seek(liveEdge(head: head, liveLag: player.shape.liveLag)))
       Log.line("separator first-ready: cursor to the live edge (recorded \(String(format: "%.2fs", Double(head) / Double(timeline.rate))))")

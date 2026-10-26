@@ -28,6 +28,10 @@ final class Player: @unchecked Sendable {
   private let guardFrames: Int
   private let gains: UnsafeMutablePointer<Float>
   private var wantPlaying = true
+  /// Set once `prebufferFrames` of separated audio lie ahead of the cursor; cleared by a stall. Starting on a thin
+  /// margin played and stalled by turns while the separator caught up.
+  private var primed = false
+  private let prebufferFrames: Int
   private var fade: Float = 0
   private var lowPass = LowPass(channels: Timeline.channels)
   /// The cutoff the filter is at, gliding toward the target; 0 while bypassed.
@@ -39,6 +43,7 @@ final class Player: @unchecked Sendable {
     fadeStep = 1 / Float(Config.transportFadeSeconds * Double(timeline.rate))
     gainStep = 1 / Float(Config.stemRampSeconds * Double(timeline.rate))
     guardFrames = Int(Config.recordingGuardSeconds * Double(timeline.rate))
+    prebufferFrames = Int(Config.prebufferSeconds * Double(timeline.rate))
     gains = .allocate(capacity: Stem.allCases.count)
     gains.initialize(repeating: 0, count: Stem.allCases.count)
   }
@@ -89,18 +94,28 @@ final class Player: @unchecked Sendable {
       fade = 0
       lowPass.reset()
     }
-    // A pause longer than the recording holds: the oldest audio is dropped, so the cursor moves up with it.
+    // A pause longer than the recording holds: the oldest audio is dropped, so the cursor moves up with it. This
+    // runs every cycle while the cursor sits there, so it keeps the generation: a jump would make every slice in
+    // flight stale and the worker would never finish one.
     if cursor < oldestPlayable {
       cursor = oldestPlayable
-      timeline.jump(to: cursor)
+      timeline.advance(to: cursor)
       fade = 0
     }
     playing.store(wantPlaying, ordering: .relaxed)
 
     let generation = timeline.generation.load(ordering: .relaxed)
     guard let frontier = timeline.frontier(for: generation), cursor + frames <= frontier, cursor >= frontier - timeline.stemCapacity else {
+      primed = false
       if wantPlaying { waitingFrames.wrappingAdd(frames, ordering: .relaxed) }
       return
+    }
+    if !primed {
+      guard frontier - cursor >= prebufferFrames else {
+        if wantPlaying { waitingFrames.wrappingAdd(frames, ordering: .relaxed) }
+        return
+      }
+      primed = true
     }
     guard wantPlaying || fade > 0 else { return }
 

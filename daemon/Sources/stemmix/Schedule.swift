@@ -44,10 +44,12 @@ struct SeparationJob: Equatable {
   let keepFrames: Int
 }
 
-/// The next slice to separate, or nil to wait: the frontier is far enough ahead of the cursor, or the head has
-/// not recorded enough audio past the slice. The right context grows with what is recorded, up to `maxRight`.
-func nextJob(head: Int, cursor: Int, frontier: Int, shape: WindowShape) -> SeparationJob? {
-  guard frontier < cursor + shape.lookahead else { return nil }
+/// The next slice to separate, or nil to wait: playback is paused, the frontier is far enough ahead of the cursor,
+/// or the head has not recorded enough audio past the slice. The right context grows with what is recorded, up to
+/// `maxRight`. A pause longer than the recording moves the cursor every cycle, so separating while paused would
+/// never finish a slice that is still current.
+func nextJob(head: Int, cursor: Int, frontier: Int, playing: Bool, shape: WindowShape) -> SeparationJob? {
+  guard playing, frontier < cursor + shape.lookahead else { return nil }
   let keep = shape.hop + shape.fade
   let sliceEnd = frontier + keep
   let available = head - sliceEnd
