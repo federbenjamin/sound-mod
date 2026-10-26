@@ -18,7 +18,6 @@ import time
 
 STATE_DIR = os.path.expanduser("~/.local/state/stemmix")
 SESSIONS_DIR = os.path.join(STATE_DIR, "sessions")
-CONFIG_FILE = os.path.join(STATE_DIR, "config.json")
 PIDFILE = os.path.join(STATE_DIR, "herdr-bridge.pid")
 LOG_FILE = os.path.join(STATE_DIR, "herdr-bridge.log")
 SOCKET_PATH = os.environ.get("HERDR_SOCKET_PATH") or os.path.expanduser("~/.config/herdr/herdr.sock")
@@ -31,8 +30,6 @@ MACHINE_TIMEOUT_SECS = 8  # one forwarded agent list; a machine slower than this
 REMOTE_STALE_MS = 15_000  # a machine's last answer older than this counts as no sessions (one forwarded call takes seconds)
 MAX_FAILS = 30  # herdr unreachable this many beats in a row: the server is gone, so stop
 WAKE_EVENTS = ["pane.agent_status_changed", "pane.agent_detected", "pane.closed", "pane.exited"]
-DEFAULTS = {"tracks": 4, "player": "spotify", "mode": "instruments", "muffling_max": 7, "muffling_min": 0}
-NUMBER_KEYS = {"tracks": int, "muffling_max": float, "muffling_min": float}
 
 wake = threading.Event()
 
@@ -114,25 +111,6 @@ def poll_machines():
         time.sleep(HEARTBEAT_SECS)
 
 
-def read_config(path):
-    """The settings from the plugin's config.toml (one-line `key = value`; Python 3.9 has no tomllib): tracks,
-    player, mode, muffling_max, muffling_min; a key left out keeps its default."""
-    config = dict(DEFAULTS)
-    try:
-        with open(path) as f:
-            for line in f:
-                m = re.fullmatch(r'\s*(tracks|player|mode|muffling_max|muffling_min)\s*=\s*(\d+(?:\.\d+)?|"[^"]*")\s*(#.*)?', line.rstrip("\n"))
-                if m:
-                    key, raw = m.group(1), m.group(2)
-                    if key in NUMBER_KEYS and not raw.startswith('"'):
-                        config[key] = NUMBER_KEYS[key](raw)
-                    elif key not in NUMBER_KEYS and raw.startswith('"'):
-                        config[key] = raw.strip('"')
-    except OSError:
-        pass
-    return config
-
-
 def write_json(path, value):
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
@@ -191,14 +169,6 @@ def listen():
         delay = min(delay * 2, 30)
 
 
-def plugin_config_path():
-    try:
-        out = subprocess.run([HERDR, "plugin", "config-dir", PLUGIN_ID], capture_output=True, text=True, timeout=10).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return os.path.join(out, "config.toml") if out else None
-
-
 def log(text):
     print(f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {text}", file=sys.stderr, flush=True)
 
@@ -235,11 +205,9 @@ def main():
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, stop)
-    config_path = plugin_config_path()
     threading.Thread(target=listen, daemon=True).start()
     threading.Thread(target=poll_machines, daemon=True).start()
     fails = 0
-    last_config = None
     last_counts = None
     while owns_pidfile():
         wake.clear()
@@ -263,10 +231,6 @@ def main():
                 there = sum(len(s) for s, _ in remote.values())
                 log(f"agents working={counts[0]} live={counts[1]} ({here}, saved machines {len(sessions) - len(local)}/{there})")
                 last_counts = counts
-            config = read_config(config_path) if config_path else dict(DEFAULTS)
-            if config != last_config:
-                write_json(CONFIG_FILE, config)
-                last_config = config
         wake.wait(HEARTBEAT_SECS)
     # Taken over by a newer start: it owns the files now. Only a bridge that lost herdr removes them.
     if fails >= MAX_FAILS:

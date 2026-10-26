@@ -11,13 +11,15 @@ final class StateTests: XCTestCase {
   func testContractFixturesDecode() throws {
     let session = try JSONDecoder().decode(SessionFile.self, from: Data(contentsOf: fixtures.appendingPathComponent("session.json")))
     XCTAssertEqual(session, SessionFile(working: true, updatedAt: 1_700_000_000_000))
-    let config = try JSONDecoder().decode(ConfigFile.self, from: Data(contentsOf: fixtures.appendingPathComponent("config.json")))
-    XCTAssertEqual(config, ConfigFile(tracks: 4, player: "spotify"))
   }
 
-  func testContractConfigFixtureCarriesTheListeningKnobs() throws {
-    let config = try JSONDecoder().decode(ConfigFile.self, from: Data(contentsOf: fixtures.appendingPathComponent("config.json")))
-    XCTAssertEqual(config, ConfigFile(tracks: 4, player: "spotify", mode: .instruments, mufflingMax: 7, mufflingMin: 0))
+  func testASettingChangesOnlyItsKeyAndTheFileKeepsTheSnakeCaseKeys() throws {
+    let config = ConfigFile(tracks: 3, player: "music", mode: .both, mufflingMax: 5.5, mufflingMin: 1)
+      .with(.mufflingMax(9)).with(.tracks(6))
+    XCTAssertEqual(config, ConfigFile(tracks: 6, player: "music", mode: .both, mufflingMax: 9, mufflingMin: 1))
+    let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(config)) as? [String: Any]
+    XCTAssertEqual(Set(json?.keys ?? [:].keys), ["tracks", "player", "mode", "muffling_max", "muffling_min"])
+    XCTAssertEqual(try JSONDecoder().decode(ConfigFile.self, from: JSONEncoder().encode(config)), config)
   }
 
   func testConfigWithoutTheNewKeysTakesTheirDefaults() throws {
@@ -25,6 +27,8 @@ final class StateTests: XCTestCase {
     XCTAssertEqual(old, ConfigFile(tracks: 3, player: "music", mode: .instruments, mufflingMax: 7, mufflingMin: 0))
     let modeOnly = try JSONDecoder().decode(ConfigFile.self, from: Data(#"{"mode": "both"}"#.utf8))
     XCTAssertEqual(modeOnly, ConfigFile(tracks: 4, player: "spotify", mode: .both, mufflingMax: 7, mufflingMin: 0))
+    let badMode = try JSONDecoder().decode(ConfigFile.self, from: Data(#"{"tracks": 6, "mode": "loud"}"#.utf8))
+    XCTAssertEqual(badMode, ConfigFile(tracks: 6, player: "spotify"))
   }
 
   func testSummarizeCountsLiveAndWorkingAndStemSchedule() {

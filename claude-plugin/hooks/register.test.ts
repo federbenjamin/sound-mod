@@ -24,12 +24,11 @@ function engine(on: any) {
 
 const START = { cwd: '/', surface: 'terminal', isInteractive: true } as const
 
-test('session.start writes config.json and an idle session file', { options: { tracks: 3, player: 'music' } }, async ($, on) => {
+test('session.start writes an idle session file and nothing else', async ($, on) => {
   const { writes, lastSession } = engine(on)
   await $.session.start(START)
 
-  const config = writes.find(w => w.path === '/home/test/.local/state/stemmix/config.json')
-  expect(JSON.parse(config!.text)).toEqual({ tracks: 3, player: 'music', mode: 'instruments', muffling_max: 7, muffling_min: 0 })
+  expect(writes.every(w => w.path.startsWith('/home/test/.local/state/stemmix/sessions/'))).toBe(true)
   expect(lastSession()).toEqual({ working: false, updatedAt: 1000 })
   await $.session.end({})
 })
@@ -89,7 +88,7 @@ test('a session that enabled the plugin mid-way reports from its first turn', as
 
   await $.turn.start({ text: 'go' })
 
-  expect(writes.some(w => w.path === '/home/test/.local/state/stemmix/config.json')).toBe(true)
+  expect(writes.some(w => w.path.startsWith('/home/test/.local/state/stemmix/sessions/'))).toBe(true)
   expect(lastSession().working).toBe(true)
   await $.session.end({})
   expect(lastSession().working).toBe(false)

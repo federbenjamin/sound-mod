@@ -6,6 +6,8 @@ final class StatusMenu: NSObject {
   private let onAction: (MenuAction) -> Void
   private let info = (0..<MenuLayout.infoLines).map { _ in NSMenuItem(title: "", action: nil, keyEquivalent: "") }
   private var actions: [NSMenuItem] = []
+  private var settingGroups: [NSMenuItem] = []
+  private var settingOptions: [NSMenuItem] = []
   private var shown: MenuContent?
 
   init(onAction: @escaping (MenuAction) -> Void) {
@@ -19,8 +21,9 @@ final class StatusMenu: NSObject {
       menu.addItem(line)
     }
     // Tags index MenuContent.items, which follow the layout's groups in order.
-    for group in MenuLayout.actionGroups {
+    for (index, group) in MenuLayout.actionGroups.enumerated() {
       menu.addItem(.separator())
+      if index == MenuLayout.settingsGroup { menu.addItem(settingsItem()) }
       for _ in group {
         let action = NSMenuItem(title: "", action: #selector(clicked(_:)), keyEquivalent: "")
         action.target = self
@@ -31,6 +34,30 @@ final class StatusMenu: NSObject {
       }
     }
     item.menu = menu
+  }
+
+  /// Settings, one submenu per `SettingKind`; option tags index MenuContent.settings' options joined in order.
+  private func settingsItem() -> NSMenuItem {
+    let settings = NSMenu()
+    settings.autoenablesItems = false
+    for kind in MenuLayout.settings {
+      let options = NSMenu()
+      options.autoenablesItems = false
+      for _ in kind.options {
+        let option = NSMenuItem(title: "", action: #selector(chose(_:)), keyEquivalent: "")
+        option.target = self
+        option.tag = settingOptions.count
+        options.addItem(option)
+        settingOptions.append(option)
+      }
+      let group = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+      group.submenu = options
+      settings.addItem(group)
+      settingGroups.append(group)
+    }
+    let item = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
+    item.submenu = settings
+    return item
   }
 
   /// Updates the items in place, so an open menu shows the change.
@@ -56,10 +83,24 @@ final class StatusMenu: NSObject {
       action.title = model.title
       action.isEnabled = model.isEnabled
     }
+    for (group, model) in zip(settingGroups, content.settings) {
+      group.title = model.title
+      group.isEnabled = model.isEnabled
+    }
+    for (option, model) in zip(settingOptions, content.settings.flatMap(\.options)) {
+      option.title = model.title
+      option.isEnabled = model.isEnabled
+      option.state = model.isChecked ? .on : .off
+    }
   }
 
   @objc private func clicked(_ sender: NSMenuItem) {
     guard let shown, shown.items.indices.contains(sender.tag) else { return }
     onAction(shown.items[sender.tag].action)
+  }
+
+  @objc private func chose(_ sender: NSMenuItem) {
+    guard let options = shown?.settings.flatMap(\.options), options.indices.contains(sender.tag) else { return }
+    onAction(options[sender.tag].action)
   }
 }

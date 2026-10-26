@@ -1,46 +1,5 @@
 {
   "name": "stemmix",
-  "version": "0.1.0",
-  "description": "Writes whether this session is working so the stemmix daemon can play one more instrument stem for each working session.",
-  "userConfig": {
-    "tracks": {
-      "type": "number",
-      "title": "Tracks",
-      "description": "How many working sessions it takes to hear the whole song (N). The song plays as 4 stems (drums, bass, other, vocals); k working sessions hear the first ceil(4k/N).",
-      "default": 4
-    },
-    "player": {
-      "type": "string",
-      "title": "Player",
-      "description": "Which music app the daemon taps.",
-      "default": "spotify",
-      "options": [
-        "spotify",
-        "music"
-      ]
-    },
-    "mode": {
-      "type": "string",
-      "title": "Mode",
-      "description": "How the song thins out with fewer working sessions. instruments: take instruments away. muffled: keep every instrument and muffle the sound, like through a wall. both: do both.",
-      "default": "instruments",
-      "options": [
-        "instruments",
-        "muffled",
-        "both"
-      ]
-    },
-    "muffling_max": {
-      "type": "number",
-      "title": "Muffling at fewest sessions",
-      "description": "How muffled the sound is with no session working, 0 (not at all) to 10 (most). Only in the muffled and both modes.",
-      "default": 7
-    },
-    "muffling_min": {
-      "type": "number",
-      "title": "Muffling at most sessions",
-      "description": "How muffled the sound is when N sessions are working, 0 (not at all) to 10 (most). Only in the muffled and both modes.",
-      "default": 0
-    }
-  }
+  "version": "0.2.0",
+  "description": "Writes whether this session is working so the stemmix daemon can play one more instrument stem for each working session."
 }
