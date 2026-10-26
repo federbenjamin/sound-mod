@@ -52,8 +52,8 @@ enum Config {
   static let windowSeconds = 7.8
   static let hopSeconds = 1.0
   static let fadeSeconds = 0.05
-  static let minRightSeconds = 1.5
-  static let maxRightSeconds = 2.5
+  static let minRightSeconds = 3.0
+  static let maxRightSeconds = 3.5
   static let lookaheadSeconds = 8.0
   // Headroom over the separator's compute time when placing the cursor at the live edge.
   static let computeMarginSeconds = 0.25
