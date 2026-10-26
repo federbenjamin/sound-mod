@@ -15,7 +15,7 @@ final class MenuTests: XCTestCase {
         available: available
       )),
       counts: Counts(live: 3, working: 2),
-      player: "Spotify",
+      config: ConfigFile(tracks: 4, player: "spotify"),
       audible: 2,
       cutoffHz: 3607.6,
       inputSamples: 480,
@@ -86,7 +86,7 @@ final class MenuTests: XCTestCase {
       let content = menuContent(MenuSnapshot(
         attachment: .detached(reason),
         counts: Counts(live: 1, working: 0),
-        player: "Spotify",
+        config: ConfigFile(tracks: 4, player: "spotify"),
         audible: 0,
         cutoffHz: nil,
         inputSamples: nil,
@@ -115,7 +115,7 @@ final class MenuTests: XCTestCase {
         available: []
       )),
       counts: Counts(live: 2, working: 0),
-      player: "Music",
+      config: ConfigFile(tracks: 4, player: "music"),
       audible: 0,
       cutoffHz: nil,
       inputSamples: 0,
@@ -129,7 +129,7 @@ final class MenuTests: XCTestCase {
         available: []
       )),
       counts: Counts(live: 2, working: 0),
-      player: "Music",
+      config: ConfigFile(tracks: 4, player: "music"),
       audible: 0,
       cutoffHz: nil,
       inputSamples: nil,
@@ -149,7 +149,7 @@ final class MenuTests: XCTestCase {
   func testEveryMenuContentFillsTheLayoutStatusMenuBuilds() {
     let detached = [DetachReason.off, .playerNotRunning, .needsPermission, .attaching].map { reason in
       MenuSnapshot(
-        attachment: .detached(reason), counts: Counts(live: 0, working: 0), player: "Spotify", audible: 0,
+        attachment: .detached(reason), counts: Counts(live: 0, working: 0), config: ConfigFile(tracks: 4, player: "spotify"), audible: 0,
         cutoffHz: nil, inputSamples: nil, mediaKeys: nil)
     }
     let attached = [
@@ -164,8 +164,32 @@ final class MenuTests: XCTestCase {
       XCTAssertEqual(content.items.count, MenuLayout.actionGroups.map(\.count).reduce(0, +))
       XCTAssertEqual(content.items.map(\.action), layoutActions)
       XCTAssertEqual(content.lines.count, MenuLayout.infoLines)
+      XCTAssertEqual(content.settings.map(\.options.count), MenuLayout.settings.map(\.options.count))
+      XCTAssertEqual(content.settings.flatMap(\.options).map(\.action), MenuLayout.settings.flatMap(\.options).map { .set($0) })
     }
     XCTAssertEqual(MenuLayout.actionGroups.map(\.count), [1, 3, 1, 2])
+  }
+
+  func testSettingsShowEachValueCheckTheCurrentOneAndGreyMufflingWithoutIt() {
+    func settings(_ config: ConfigFile) -> [SettingsGroup] {
+      menuContent(MenuSnapshot(
+        attachment: .detached(.off), counts: Counts(live: 0, working: 0), config: config, audible: 0,
+        cutoffHz: nil, inputSamples: nil, mediaKeys: nil)).settings
+    }
+    let both = settings(ConfigFile(tracks: 3, player: "music", mode: .both, mufflingMax: 7, mufflingMin: 5.5))
+
+    XCTAssertEqual(both.map(\.title), [
+      "Tracks: 3", "Player: Music", "Mode: Both", "Muffling, no session working: 7", "Muffling, every session working: 5.5",
+    ])
+    XCTAssertEqual(both.map(\.isEnabled), [true, true, true, true, true])
+    XCTAssertEqual(both.map { $0.options.filter(\.isChecked).map(\.title) }, [["3"], ["Music"], ["Both"], ["7 (651 Hz)"], []])
+    XCTAssertEqual(both[1].options.map(\.title), ["Spotify", "Music"])
+    XCTAssertEqual(both[2].options.map(\.title), ["Instruments", "Muffled", "Both"])
+    XCTAssertEqual(both[3].options.first?.title, "0 (none)")
+    XCTAssertEqual(both[3].options.last?.title, "10 (150 Hz)")
+
+    let instruments = settings(ConfigFile(tracks: 4, player: "spotify"))
+    XCTAssertEqual(instruments.map(\.isEnabled), [true, true, true, false, false])
   }
 
   func testBufferedLabelIsMinutesAndTwoDigitSeconds() {

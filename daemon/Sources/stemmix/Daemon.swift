@@ -6,7 +6,7 @@ import Foundation
 /// routes every transport command into the playback, shows its state in the menu bar, and logs every change.
 /// Audio lives in Playback.
 final class Daemon {
-  private let reader = StateReader()
+  private let reader = StateFiles()
   private var tap: ProcessTap?
   private var playback: Playback?
   private var nowPlaying: NowPlaying?
@@ -93,6 +93,15 @@ final class Daemon {
         Log.line("switch on=\(on) source=menu failed error=\(error)")
       }
     case let .transport(command): handle(command, source: "menu")
+    case let .set(setting):
+      let config = reader.config().with(setting)
+      let line = "settings tracks=\(config.tracks) player=\(config.player) mode=\(config.mode.rawValue) muffling_max=\(config.mufflingMax) muffling_min=\(config.mufflingMin) source=menu"
+      do {
+        try reader.saveConfig(config)
+        Log.line(line)
+      } catch {
+        Log.line("\(line) failed error=\(error)")
+      }
     case .openLog: NSWorkspace.shared.open(Config.logFile)
     case .restart:
       Log.line("restart from the menu")
@@ -159,7 +168,10 @@ final class Daemon {
     let cutoff = mufflingCutoffHz(config: config, working: counts.working)
 
     if let current = tap, !wantAttached || current.targets != targets || current.output != output {
-      detach(reason: !on ? "off" : !playerRunning ? "player-quit" : (current.targets != targets ? "player-changed" : "output-changed"))
+      let reason =
+        !on ? "off" : !playerRunning ? "player-quit" : attachedPlayer != player ? "player-setting"
+        : current.targets != targets ? "player-changed" : "output-changed"
+      detach(reason: reason)
     }
     if tap == nil, wantAttached, now >= nextAttachAt {
       attach(targets: targets, output: output, player: player)
@@ -172,7 +184,7 @@ final class Daemon {
       attachment: playback.map { .attached($0.snapshot()) }
         ?? .detached(detachReason(on: on, playerRunning: playerRunning, permission: lastPermission)),
       counts: counts,
-      player: Config.playerNames[player]!,
+      config: config,
       audible: audible,
       cutoffHz: cutoff,
       inputSamples: lastInputSamples,

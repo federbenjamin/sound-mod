@@ -1,8 +1,8 @@
 import Foundation
 
-/// How the song thins out with fewer working sessions: `mode` in config.json.
+/// How the song thins out with fewer working sessions: the Mode setting, `mode` in config.json.
 /// `instruments` takes stems away; `muffled` keeps every stem and low-passes the mix; `both` does both.
-enum ListeningMode: String, Decodable {
+enum ListeningMode: String, Codable, CaseIterable {
   case instruments, muffled, both
 
   var muffles: Bool { self != .instruments }
