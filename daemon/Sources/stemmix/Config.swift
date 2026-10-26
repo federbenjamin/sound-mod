@@ -11,6 +11,8 @@ enum Config {
 
   static let pollInterval: TimeInterval = 0.25
   static let sessionStaleMs: Double = 6_000
+  // A session counts as working until it has been not-working this long: agents idle a second or two between turns.
+  static let workingHoldSeconds: Double = 10
   static let sessionFileMaxAgeMs: Double = 24 * 3_600_000
   static let detachAfterIdle: TimeInterval = 60
   static let attachRetry: TimeInterval = 5
