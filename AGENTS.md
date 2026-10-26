@@ -10,6 +10,7 @@
 
 - 2026-10-24: not launched; no release yet. The author is the one user, running it on their own Mac; no real data beyond local state files. Retires at the first version tag.
 - 2026-10-23: the daemon's System Audio Recording grant is given on the author's Mac (Apple Development signing, so it survives rebuilds). Never run a tap from any other identity or before `capturePermission()` says authorized: an unanswered prompt wedges coreaudiod until `sudo killall coreaudiod`. Retires when the install grants the permission itself without that risk.
+- 2026-10-26: agents run no live checks on the author's Mac: no `./install.sh`, no Apple events or AppleScript to Spotify or Music, no System Events, pointer moves or screenshots, no files written under `~/.local/state/stemmix`. Proof is unit tests with fakes (`PlaybackTests`' fake player), `stemmix --simulate`, and mocks. A claim only a live run can settle goes to the author as a hand-test step. Retires when the author lifts it.
 
 ## Layout
 
