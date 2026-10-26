@@ -1,6 +1,7 @@
 import AudioToolbox
 import CoreAudio
 import Foundation
+import Synchronization
 
 enum CoreAudioError: Error, CustomStringConvertible {
   case status(OSStatus, String)
@@ -83,7 +84,9 @@ final class ProcessTap {
   private var tapID: AudioObjectID = kAudioObjectUnknown
   private var aggregateID: AudioObjectID = kAudioObjectUnknown
   private var procID: AudioDeviceIOProcID?
-  private let queue = DispatchQueue(label: "stemmix.io", qos: .userInteractive)
+  /// Frames of input the IO thread never saw: cycles Core Audio skipped because one ran late. Read and reset by
+  /// the control loop.
+  let droppedFrames = Atomic<Int>(0)
 
   /// Throws `.notAuthorized` unless System Audio Recording is already granted. Never let coreaudiod ask TCC on
   /// our behalf: an unanswered prompt leaves coreaudiod blocked on every later tap until it restarts.
@@ -130,10 +133,20 @@ final class ProcessTap {
     guard status == noErr else { throw CoreAudioError.status(status, "AudioHardwareCreateAggregateDevice") }
     aggregateID = agg
 
+    setBufferFrames(agg, Config.ioBufferFrames)
+
     let bytesPerFrame = Int(tapFormat.mBytesPerFrame)
+    var expected: Double?
     var proc: AudioDeviceIOProcID?
-    status = AudioDeviceCreateIOProcIDWithBlock(&proc, agg, queue) { _, inInputData, _, outOutputData, _ in
+    // No dispatch queue: the block runs on Core Audio's real-time IO thread. Through a queue each cycle was a
+    // dispatch_sync off that thread, and under load cycles ran late and were skipped.
+    status = AudioDeviceCreateIOProcIDWithBlock(&proc, agg, nil) { [self] _, inInputData, inInputTime, outOutputData, _ in
       let frames = Int(inInputData.pointee.mBuffers.mDataByteSize) / max(bytesPerFrame, 1)
+      let time = inInputTime.pointee
+      if time.mFlags.contains(.sampleTimeValid) {
+        droppedFrames.wrappingAdd(missedFrames(expected: expected, sampleTime: time.mSampleTime), ordering: .relaxed)
+        expected = time.mSampleTime + Double(frames)
+      }
       render(inInputData, outOutputData, frames)
     }
     guard status == noErr, let proc else { throw CoreAudioError.status(status, "AudioDeviceCreateIOProcIDWithBlock") }
@@ -141,6 +154,9 @@ final class ProcessTap {
     status = AudioDeviceStart(agg, proc)
     guard status == noErr else { throw CoreAudioError.status(status, "AudioDeviceStart") }
   }
+
+  /// The aggregate's IO buffer, in frames, as the device runs it.
+  var bufferFrames: UInt32 { readUInt32(aggregateID, kAudioDevicePropertyBufferFrameSize) }
 
   func outputStreamFormats() -> [AudioStreamBasicDescription] {
     readObjectList(aggregateID, kAudioDevicePropertyStreams, scope: kAudioObjectPropertyScopeOutput).map { stream in
@@ -181,4 +197,25 @@ final class ProcessTap {
       Log.line("teardown timed out after \(wait)s tap=\(tap) aggregate=\(aggregate)")
     }
   }
+}
+
+/// Asks for an IO buffer of `frames`, clamped to the device's range. A refusal leaves the device's default.
+private func setBufferFrames(_ device: AudioObjectID, _ frames: Int) {
+  var range = AudioValueRange()
+  var rangeSize = UInt32(MemoryLayout<AudioValueRange>.size)
+  var rangeAddr = address(kAudioDevicePropertyBufferFrameSizeRange)
+  var value = UInt32(frames)
+  if AudioObjectGetPropertyData(device, &rangeAddr, 0, nil, &rangeSize, &range) == noErr {
+    value = UInt32(min(max(Double(frames), range.mMinimum), range.mMaximum))
+  }
+  var addr = address(kAudioDevicePropertyBufferFrameSize)
+  let status = AudioObjectSetPropertyData(device, &addr, 0, nil, UInt32(MemoryLayout<UInt32>.size), &value)
+  if status != noErr { Log.line("io-buffer set-failed frames=\(value) status=\(status)") }
+}
+
+/// Input frames between the sample time the last cycle ended at and the one this cycle starts at: cycles the
+/// device skipped. 0 for the first cycle, and for a cycle that starts early.
+func missedFrames(expected: Double?, sampleTime: Double) -> Int {
+  guard let expected else { return 0 }
+  return max(0, Int((sampleTime - expected).rounded()))
 }

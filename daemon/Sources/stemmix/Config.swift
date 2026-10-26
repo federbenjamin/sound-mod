@@ -17,6 +17,8 @@ enum Config {
   static let detachAfterIdle: TimeInterval = 60
   static let attachRetry: TimeInterval = 5
   static let levelInterval: TimeInterval = 10
+  // Core Audio IO buffer: playback runs seconds behind the player, so latency costs nothing and slack absorbs load.
+  static let ioBufferFrames = 2048
   static let exitTeardownWait: TimeInterval = 5
   static let deadTapAfter: TimeInterval = 30
   static let permissionRecheck: TimeInterval = 30

@@ -172,7 +172,8 @@ final class Daemon {
     playback.expireForwardedSkip(now: now.timeIntervalSince1970)
     if now >= nextLevelAt {
       let status = playback.status()
-      Log.line(status.line)
+      let dropped = tap?.droppedFrames.exchange(0, ordering: .relaxed) ?? 0
+      Log.line(status.line + String(format: " dropped=%.2fs", Double(dropped) / Double(playback.timeline.rate)))
       lastInputSamples = status.inputSamples
       nextLevelAt = now.addingTimeInterval(Config.levelInterval)
       // A tap that delivers no samples at all while the player outputs is dead (a coreaudiod restart, a stale
@@ -228,7 +229,7 @@ final class Daemon {
       lastPlaying = nil
       nowPlaying?.claim(playing: playback.intendsPlaying)
       let formats = tap.outputStreamFormats().map { "\(Int($0.mSampleRate))Hz/\($0.mChannelsPerFrame)ch/\($0.mBitsPerChannel)bit" }.joined(separator: ",")
-      Log.line("attach player=\(player) objects=\(targets) tap=\(Int(tap.tapFormat.mSampleRate))Hz/\(tap.tapFormat.mChannelsPerFrame)ch output=\(output.uid) streams=\(formats)")
+      Log.line("attach player=\(player) objects=\(targets) tap=\(Int(tap.tapFormat.mSampleRate))Hz/\(tap.tapFormat.mChannelsPerFrame)ch output=\(output.uid) streams=\(formats) io-buffer=\(tap.bufferFrames)")
     } catch let CoreAudioError.notAuthorized(permission) {
       // Never let coreaudiod ask TCC on our behalf: ProcessTap refuses until the permission is granted.
       if permission != lastPermission { Log.line("permission \(permission.rawValue)") }
