@@ -50,7 +50,7 @@ Each choice lists three options and the pick. The pick names what it took from t
 | B. A timeline: recorded mix in a ring addressed by absolute frame number, stems computed just ahead of a play cursor, cursor moves only while playing | Instant pause and resume, time-shift, skip inside the buffer. Separation runs only for what will be played. | A ring with a cursor, a recording head and a stems frontier to keep consistent. |
 | C. Separate whole songs ahead and keep them on disk | Best quality (full context). | Spotify only plays at real-time speed, so nothing can get ahead faster than real time anyway. It writes Spotify audio to disk. |
 
-**Pick: B**, with C's quality gain where it is free: when the cursor is behind the recording head, the separator looks up to 2.5 s past each slice instead of 1.5 s.
+**Pick: B**, with C's quality gain where it is free: the separator looks at least 3 s past each slice, and up to 3.5 s when the cursor is behind the recording head. Changed 2026-10-26 from 1.5 s and 2.5 s: measured +0.2 to +1.5 dB SDR per stem for 1.5 s more delay, the operator's trade.
 
 ### 4. How the mix is built from stems
 
@@ -287,7 +287,7 @@ One read by a plan-review agent before building. Each finding and what changed:
 8. The macOS 15 floor goes into both `Package.swift` and `Info.plist`.
 9. **The recording ring is touched once off the IO thread before the tap starts**, so the IO thread never takes a first-write page fault.
 10. The separator writes frames to a private copy of stdout and points fd 1 at stderr.
-11. Right context when behind is capped at **2.5 s** (measured), not 3 s.
+11. Right context when behind is capped at **3.5 s** (2.5 s until 2026-10-26; see choice 3's pick).
 
 ## Sources for choices 11 to 18
 
