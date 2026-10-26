@@ -27,6 +27,8 @@ final class StateTests: XCTestCase {
     XCTAssertEqual(old, ConfigFile(tracks: 3, player: "music", mode: .instruments, mufflingMax: 7, mufflingMin: 0))
     let modeOnly = try JSONDecoder().decode(ConfigFile.self, from: Data(#"{"mode": "both"}"#.utf8))
     XCTAssertEqual(modeOnly, ConfigFile(tracks: 4, player: "spotify", mode: .both, mufflingMax: 7, mufflingMin: 0))
+    let badMode = try JSONDecoder().decode(ConfigFile.self, from: Data(#"{"tracks": 6, "mode": "loud"}"#.utf8))
+    XCTAssertEqual(badMode, ConfigFile(tracks: 6, player: "spotify"))
   }
 
   func testSummarizeCountsLiveAndWorkingAndStemSchedule() {

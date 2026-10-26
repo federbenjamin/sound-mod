@@ -17,6 +17,15 @@ func detachReason(on: Bool, playerRunning: Bool, permission: CapturePermission?)
   return .attaching
 }
 
+/// The log's reason for dropping an attach: the first of the switch, the player setting, the player quitting, its
+/// processes changing, the output device changing.
+func detachLogReason(on: Bool, playerSettingChanged: Bool, playerRunning: Bool, targetsChanged: Bool) -> String {
+  if !on { return "off" }
+  if playerSettingChanged { return "player-setting" }
+  if !playerRunning { return "player-quit" }
+  return targetsChanged ? "player-changed" : "output-changed"
+}
+
 /// Everything the menu shows, built by the daemon each tick and shown only when it changed.
 struct MenuSnapshot: Equatable {
   enum Attachment: Equatable {

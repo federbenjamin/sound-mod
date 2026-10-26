@@ -46,6 +46,14 @@ final class MenuTests: XCTestCase {
     XCTAssertEqual(detachReason(on: true, playerRunning: true, permission: nil), .attaching)
   }
 
+  func testDetachLogReasonNamesASwitchedPlayerEvenWhenTheNewOneIsNotRunning() {
+    XCTAssertEqual(detachLogReason(on: false, playerSettingChanged: true, playerRunning: false, targetsChanged: true), "off")
+    XCTAssertEqual(detachLogReason(on: true, playerSettingChanged: true, playerRunning: false, targetsChanged: true), "player-setting")
+    XCTAssertEqual(detachLogReason(on: true, playerSettingChanged: false, playerRunning: false, targetsChanged: true), "player-quit")
+    XCTAssertEqual(detachLogReason(on: true, playerSettingChanged: false, playerRunning: true, targetsChanged: true), "player-changed")
+    XCTAssertEqual(detachLogReason(on: true, playerSettingChanged: false, playerRunning: true, targetsChanged: false), "output-changed")
+  }
+
   func testAttachedMenuReflectsPlaybackInItsIconAndOffersAllMenuActions() {
     let content = menuContent(attachedSnapshot())
 

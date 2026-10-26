@@ -283,7 +283,7 @@ One read by a plan-review agent before building. Each finding and what changed:
 4. Tap creation had its permission check at three call sites. **The preflight moves into `ProcessTap.init`, which throws when not authorized.** `--simulate` and `--control` never construct a tap.
 5. The Python sum test now sums the model's own four stems (within 20 dB); the exact all-on check belongs to `--simulate` at k = 4.
 6. Nothing proved Now Playing. **The daemon runs as an accessory NSApplication; the media-key route is a hand check for the user** (press play/pause with Spotify playing; the log names each command's source). Choice 6B covers pause if the keys never arrive. (Choice 18 proved that the pulse's two sets reach mediaremoted as two changes; that the keys reach the daemon while Spotify plays is still the user's hand check.)
-7. N = 4 changes at all five places that say 5: `Config.swift`, `plugin.json`, `register.ts`, `contract/config.json`, README.
+7. N = 4 changes at both places that say 5: `Config.swift` and README (the settings moved to the menu on 2026-10-26).
 8. The macOS 15 floor goes into both `Package.swift` and `Info.plist`.
 9. **The recording ring is touched once off the IO thread before the tap starts**, so the IO thread never takes a first-write page fault.
 10. The separator writes frames to a private copy of stdout and points fd 1 at stderr.

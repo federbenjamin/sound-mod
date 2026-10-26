@@ -3,7 +3,7 @@
 
 id = "stemmix"
 name = "stemmix"
-version = "0.1.0"
+version = "0.2.0"
 min_herdr_version = "0.9.0"
 description = "Music that fills in with your working agents: one more instrument stem for each agent pane that is working"
 platforms = ["macos"]

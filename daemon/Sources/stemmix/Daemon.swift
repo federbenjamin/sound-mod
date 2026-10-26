@@ -168,10 +168,8 @@ final class Daemon {
     let cutoff = mufflingCutoffHz(config: config, working: counts.working)
 
     if let current = tap, !wantAttached || current.targets != targets || current.output != output {
-      let reason =
-        !on ? "off" : !playerRunning ? "player-quit" : attachedPlayer != player ? "player-setting"
-        : current.targets != targets ? "player-changed" : "output-changed"
-      detach(reason: reason)
+      detach(reason: detachLogReason(
+        on: on, playerSettingChanged: attachedPlayer != player, playerRunning: playerRunning, targetsChanged: current.targets != targets))
     }
     if tap == nil, wantAttached, now >= nextAttachAt {
       attach(targets: targets, output: output, player: player)

@@ -25,14 +25,15 @@ struct ConfigFile: Codable, Equatable {
 
   private enum Key: String, CodingKey { case tracks, player, mode, muffling_max, muffling_min }
 
-  /// A key the file lacks takes its default.
+  /// A key the file lacks, or holds a bad value in, takes its default, so a menu pick after a bad hand edit keeps
+  /// the other keys.
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: Key.self)
-    tracks = try c.decodeIfPresent(Int.self, forKey: .tracks) ?? Config.defaultTracks
-    player = try c.decodeIfPresent(String.self, forKey: .player) ?? Config.defaultPlayer
-    mode = try c.decodeIfPresent(ListeningMode.self, forKey: .mode) ?? Config.defaultMode
-    mufflingMax = try c.decodeIfPresent(Double.self, forKey: .muffling_max) ?? Config.defaultMufflingMax
-    mufflingMin = try c.decodeIfPresent(Double.self, forKey: .muffling_min) ?? Config.defaultMufflingMin
+    tracks = (try? c.decodeIfPresent(Int.self, forKey: .tracks)) ?? Config.defaultTracks
+    player = (try? c.decodeIfPresent(String.self, forKey: .player)) ?? Config.defaultPlayer
+    mode = (try? c.decodeIfPresent(ListeningMode.self, forKey: .mode)) ?? Config.defaultMode
+    mufflingMax = (try? c.decodeIfPresent(Double.self, forKey: .muffling_max)) ?? Config.defaultMufflingMax
+    mufflingMin = (try? c.decodeIfPresent(Double.self, forKey: .muffling_min)) ?? Config.defaultMufflingMin
   }
 
   func encode(to encoder: Encoder) throws {
