@@ -67,8 +67,8 @@ enum Config {
   static let previousRestartSeconds = 3.0
   // "Next" with no later song recorded asks the player to skip; the cursor waits this long for its track change.
   static let forwardedSkipTimeout: TimeInterval = 3
-  // How long the player may take to answer its "next track" Apple event.
-  static let playerControlTimeout: TimeInterval = 2
+  // How long the "next track" Apple event may wait for its reply; the first one waits on the Automation prompt.
+  static let playerControlTimeout: TimeInterval = 30
   // Each player's bundle ID and the Apple event for its AppleScript "next track" (read from its sdef).
   static let playerNextTrack: [String: (bundleID: String, eventClass: String, eventID: String)] = [
     "spotify": ("com.spotify.client", "spfy", "Next"),

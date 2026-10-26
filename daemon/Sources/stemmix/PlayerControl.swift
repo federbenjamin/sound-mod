@@ -1,8 +1,8 @@
+import AppKit
 import CoreServices
-import Foundation
 
 /// Asks the music player to skip to its next track with its own AppleScript "next track" Apple event. The send
-/// runs off the main thread: the first one waits on the Automation prompt for as long as it stays unanswered.
+/// runs off the main thread, so the first one can wait on the Automation prompt without stalling the control loop.
 final class PlayerControl {
   private let queue = DispatchQueue(label: "stemmix.player-control")
   /// Main thread only. A press while a send is pending (the prompt still up) is dropped, so that answering the
@@ -32,23 +32,25 @@ final class PlayerControl {
     }
   }
 
+  /// Addresses the running player by pid: addressed by bundle ID, Spotify's events (and
+  /// `AEDeterminePermissionToAutomateTarget`) got no reply on macOS 26 while the same event by pid answered at once.
+  /// The send itself raises the Automation prompt the first time, and its timeout bounds the wait.
   private static func send(bundleID: String, eventClass: AEEventClass, eventID: AEEventID) -> String {
-    let address = NSAppleEventDescriptor(bundleIdentifier: bundleID)
-    let permission = AEDeterminePermissionToAutomateTarget(address.aeDesc, eventClass, eventID, true)
-    switch permission {
-    case noErr: break
-    case OSStatus(errAEEventNotPermitted): return "denied"
-    case OSStatus(procNotFound): return "not-running"
-    default: return "error=\(permission)"
-    }
+    guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else { return "not-running" }
     let event = NSAppleEventDescriptor(
-      eventClass: eventClass, eventID: eventID, targetDescriptor: address,
+      eventClass: eventClass, eventID: eventID,
+      targetDescriptor: NSAppleEventDescriptor(processIdentifier: app.processIdentifier),
       returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
     do {
       _ = try event.sendEvent(options: [.waitForReply], timeout: Config.playerControlTimeout)
       return "ok"
     } catch {
-      return "error=\((error as NSError).code)"
+      switch (error as NSError).code {
+      case Int(errAEEventNotPermitted): return "denied"
+      case Int(procNotFound): return "not-running"
+      case Int(errAETimeout): return "timeout-waiting-for-reply"
+      case let code: return "error=\(code)"
+      }
     }
   }
 }
