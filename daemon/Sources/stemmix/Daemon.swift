@@ -25,6 +25,10 @@ final class Daemon {
   private var lastPlaying: Bool?
   private var playerObserver: NSObjectProtocol?
   private var observedPlayer: String?
+  /// The player key of the current attach.
+  private var attachedPlayer: String?
+  /// The last attach's play state and hold, kept for a re-attach inside this run (`attachIntent`).
+  private var resume: (playing: Bool, held: Bool)?
   private var statusMenu: StatusMenu?
   private var lastMenu: MenuSnapshot?
   private var lastInputSamples: Int?
@@ -180,7 +184,7 @@ final class Daemon {
   }
 
   private func tickAttached(_ playback: Playback, now: Date, config: ConfigFile, counts: Counts, targets: [AudioObjectID], audible: Int, cutoff: Double?) {
-    playback.tick(now: now.timeIntervalSince1970)
+    playback.tick(now: now.timeIntervalSince1970, playerOutputting: isOutputting(targets))
     if now >= nextLevelAt {
       let status = playback.status()
       let dropped = tap?.droppedFrames.exchange(0, ordering: .relaxed) ?? 0
@@ -223,7 +227,8 @@ final class Daemon {
     do {
       let tap = try ProcessTap(targets: targets, output: output)
       let playback = Playback(
-        rate: Int(tap.tapFormat.mSampleRate), playerPlaying: isOutputting(targets), bufferAheadSeconds: Config.bufferAheadSeconds
+        rate: Int(tap.tapFormat.mSampleRate), playerPlaying: isOutputting(targets), resume: resume,
+        bufferAheadSeconds: Config.bufferAheadSeconds
       ) { [weak self] command, done in
         self?.playerControl.send(command, player: player, done: done)
       }
@@ -232,6 +237,8 @@ final class Daemon {
       try tap.start { input, output, frames in playback.player.render(input, output, frames: frames) }
       self.tap = tap
       self.playback = playback
+      attachedPlayer = player
+      resume = nil
       lastPermission = nil
       lastInputSamples = nil
       // Read the first level line a full interval in: read now, before any IO cycle, it counts 0 samples.
@@ -288,11 +295,21 @@ final class Daemon {
   /// `wait`: how long to block on the teardown, before an exit; nil lets it finish on its own thread.
   private func detach(reason: String, wait: TimeInterval? = nil) {
     silentSince = nil
+    if let playback, let player = attachedPlayer {
+      // A re-attach inside this run picks up where this one was; any other detach hands the player back.
+      resume = ["output-changed", "player-changed", "no-samples"].contains(reason) ? (playback.intendsPlaying, playback.playerHeld) : nil
+      // The tap mutes the player: pause one that fills behind a paused stemmix before the tap goes, or it is heard
+      // past where the user paused.
+      if resume == nil, playback.playerFillsUnheard {
+        playerControl.sendNow(.pause, player: player, timeout: Config.exitTeardownWait)
+      }
+    }
     nowPlaying?.release()
     playback?.stop()
     tap?.stop(wait: wait)
     tap = nil
     playback = nil
+    attachedPlayer = nil
     lastInputSamples = nil
     lastAudible = nil
     lastCutoff = nil

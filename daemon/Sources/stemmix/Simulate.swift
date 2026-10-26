@@ -141,7 +141,7 @@ func runSimulate(_ arguments: [String]) -> Int32 {
         format: "%.2fs frame=%d player-event song=%@ state=%@ input=%d action=%@ seek=%@", t, frame, index.map { String($0) } ?? "-",
         playerPlaying ? "playing" : "paused", readFrame, "\(reaction.action)", reaction.seek.map { String($0) } ?? "-"))
     }
-    playback.tick(now: t)
+    playback.tick(now: t, playerOutputting: playerPlaying)
     for i in 0..<block * Timeline.channels {
       let index = readFrame * Timeline.channels + i
       inBlock[i] = playerPlaying && readFrame + i / Timeline.channels < inputFrames ? input[index] : 0

@@ -23,17 +23,24 @@ final class Playback {
   /// Sends a command to the music player, then reports on the main thread whether it took it.
   private let control: (PlayerCommand, @escaping (Bool) -> Void) -> Void
 
-  /// `playerPlaying`: whether the music player plays at the attach. A player paused then was paused by the user,
-  /// so the attach starts paused and held.
-  init(rate: Int, playerPlaying: Bool, bufferAheadSeconds: Double, control: @escaping (PlayerCommand, @escaping (Bool) -> Void) -> Void) {
+  /// When the player's state and the belief have disagreed, with no own command waiting for its answer.
+  private var mismatchSince: TimeInterval?
+
+  /// `playerPlaying`: whether the music player plays at the attach. `resume`: the last attach's play state and
+  /// hold, for a re-attach inside one daemon run (`attachIntent`).
+  init(
+    rate: Int, playerPlaying: Bool, resume: (playing: Bool, held: Bool)? = nil, bufferAheadSeconds: Double,
+    control: @escaping (PlayerCommand, @escaping (Bool) -> Void) -> Void
+  ) {
     self.control = control
-    intendsPlaying = playerPlaying
-    playerHeld = !playerPlaying
+    let intent = attachIntent(playerPlaying: playerPlaying, resume: resume)
+    intendsPlaying = intent.playing
+    playerHeld = intent.held
     follower = PlayerFollower(playerPlaying: playerPlaying)
     timeline = Timeline(rate: rate, recordingSeconds: Config.recordingSeconds, stemsSeconds: Config.stemsSeconds)
     bufferAheadFrames = Int(bufferAheadSeconds * Double(rate))
     let player = Player(timeline: timeline)
-    if !playerPlaying { player.send(.pause) }
+    if !intent.playing { player.send(.pause) }
     self.player = player
     // The separator's cold start takes seconds; the cursor waited at the attach point meanwhile. Start at the
     // live edge instead of that far behind.
@@ -89,20 +96,37 @@ final class Playback {
       if reaction.action == .pause { playerHeld = true }
     case .none, .seek, .skipPlayer: break
     }
+    if reaction.ended {
+      askedPlayerPlaying = nil
+      playerHeld = true
+    }
     send(reaction.action)
     if let frame = reaction.seek { player.send(.seek(frame)) }
     Log.line("player-event state=\(event.state.rawValue) track=\(event.trackID ?? "-") mark=\(reaction.mark.map { String($0.frame) } ?? "-") action=\(describe(reaction.action)) seek=\(reaction.seek.map(seconds) ?? "-")")
     return reaction
   }
 
-  /// Once per control-loop tick: drops the echoes the player never sent, then applies the buffer rule, asking the
+  /// Once per control-loop tick: drops the echoes the player never sent, checks the belief about the player
+  /// against `playerOutputting` (Core Audio's word on whether it plays), then applies the buffer rule, asking the
   /// player to play or pause when its known state is not the one the rule wants.
-  func tick(now: TimeInterval) {
+  func tick(now: TimeInterval, playerOutputting: Bool) {
     for echo in follower.expire(at: now) {
       switch echo {
       case .trackChange: Log.line("player-control command=next result=timeout: no track change within \(Int(Config.playerEchoWindow))s")
       case .playing, .paused: Log.line("player-control command=\(echo == .playing ? "play" : "pause") result=timeout: no player state within \(Int(Config.playerEchoWindow))s")
       }
+    }
+    if playerOutputting == follower.playerPaused, !follower.awaitsState(at: now) {
+      let since = mismatchSince ?? now
+      mismatchSince = since
+      if now - since >= Config.playerEchoWindow {
+        follower.correct(playerPlaying: playerOutputting, at: now)
+        askedPlayerPlaying = nil
+        mismatchSince = nil
+        Log.line("player-state corrected=\(playerOutputting ? "playing" : "paused"): no notification said so")
+      }
+    } else {
+      mismatchSince = nil
     }
     let c = commandContext()
     let buffered = bufferedFrames(cursor: c.cursor, head: c.head)
@@ -121,6 +145,10 @@ final class Playback {
       follower.withdraw(echo, at: now)
     }
   }
+
+  /// Whether the player plays, muted, behind a paused stemmix: releasing the tap now would make it heard past
+  /// where the user paused, so the daemon pauses it first.
+  var playerFillsUnheard: Bool { !intendsPlaying && !follower.playerPaused }
 
   func setAudible(_ count: Int) { player.audible.store(count, ordering: .relaxed) }
 

@@ -33,12 +33,21 @@ func isAtLive(cursor: Int, head: Int, rate: Int, liveLag: Int) -> Bool {
 /// The recording ahead of the cursor, in frames: what plays before the cursor reaches the head.
 func bufferedFrames(cursor: Int, head: Int) -> Int { max(0, head - cursor) }
 
-/// Whether the music player should be playing: always while stemmix plays; while stemmix is paused, until
-/// `target` frames are buffered ahead of the cursor, unless the pause was made in the player (`held`).
+/// Whether the music player should be playing: never while `held` (a pause made in the player, or the player
+/// ending its own queue); else always while stemmix plays; while stemmix is paused, until `target` frames are
+/// buffered ahead of the cursor.
 func playerShouldPlay(playing: Bool, held: Bool, buffered: Int, target: Int) -> Bool {
-  if playing { return true }
   if held { return false }
+  if playing { return true }
   return buffered < target
+}
+
+/// Stemmix's play state and hold at an attach. A re-attach inside one daemon run (a new output device, a new
+/// player process, a dead tap) keeps the last attach's; else the player's state decides: a player paused then
+/// was paused by the user. The player keeps playing behind a paused stemmix, so its state alone would start a
+/// re-attach playing.
+func attachIntent(playerPlaying: Bool, resume: (playing: Bool, held: Bool)?) -> (playing: Bool, held: Bool) {
+  resume ?? (playerPlaying, !playerPlaying)
 }
 
 /// What a command means at this moment. `marks` are the song starts the recording still holds, in order.
@@ -145,6 +154,9 @@ struct PlayerFollower {
     var mark: TrackMark?
     /// The player changed into Playing with this event, whoever asked for it.
     var startedPlaying = false
+    /// The player stopped by itself at the end of its queue: stemmix plays out its buffer and asks the player
+    /// for nothing until a play.
+    var ended = false
   }
 
   mutating func expect(_ echo: PlayerEcho, until: TimeInterval) { echoes.expect(echo, until: until) }
@@ -153,6 +165,17 @@ struct PlayerFollower {
   mutating func withdraw(_ echo: PlayerEcho, at now: TimeInterval) { _ = echoes.claim(echo, at: now) }
   /// The echoes that never came within their window.
   mutating func expire(at now: TimeInterval) -> [PlayerEcho] { echoes.expire(at: now) }
+  /// Whether an own play or pause still waits for its answer.
+  func awaitsState(at now: TimeInterval) -> Bool { echoes.isPending(.playing, at: now) || echoes.isPending(.paused, at: now) }
+
+  /// Takes the player's state from what Core Audio reports, when no notification told it: the belief is otherwise
+  /// changed only by the player's notifications, and a wrong one would stall the buffer rule.
+  mutating func correct(playerPlaying: Bool, at now: TimeInterval) {
+    guard playerPlaying != !playerPaused else { return }
+    positionAtLastEvent += lastState == .playing ? now - (lastEventAt ?? now) : 0
+    lastEventAt = now
+    lastState = playerPlaying ? .playing : .paused
+  }
 
   mutating func handle(_ event: PlayerEvent, now: TimeInterval, head: Int, behindLive: Bool) -> Reaction {
     var reaction = Reaction()
@@ -160,7 +183,15 @@ struct PlayerFollower {
     let isPlaying = event.state == .playing
     let elapsed = positionAtLastEvent + (wasPlaying ? now - (lastEventAt ?? now) : 0)
     if isPlaying != wasPlaying, !echoes.claim(isPlaying ? .playing : .paused, at: now) {
-      reaction.action = isPlaying ? .play : .pause
+      // A stop, or a pause at the song's end with no next song, is the queue running out, not the user.
+      let atEnd = event.state == .stopped || (event.trackID == trackID && trackDuration.map { duration in
+        (event.positionSeconds ?? elapsed) >= duration - Config.skipBeforeEndSeconds
+      } ?? false)
+      if !isPlaying, atEnd {
+        reaction.ended = true
+      } else {
+        reaction.action = isPlaying ? .play : .pause
+      }
     }
     reaction.startedPlaying = isPlaying && !wasPlaying
     lastState = event.state

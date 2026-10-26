@@ -83,9 +83,12 @@ final class Player: @unchecked Sendable {
     // Once the recording wraps, the oldest `guardFrames` are about to be overwritten: never play or separate there.
     let oldestPlayable = timeline.oldestRecorded(head: head) + (head > timeline.recordingCapacity ? guardFrames : 0)
     let code = pending.exchange(0, ordering: .acquiring)
+    var resumed = false
     switch code & 3 {
     case 1: wantPlaying = false
-    case 2: wantPlaying = true
+    case 2:
+      resumed = !wantPlaying
+      wantPlaying = true
     default: break
     }
     if code & 4 != 0 {
@@ -110,6 +113,9 @@ final class Player: @unchecked Sendable {
       if wantPlaying { waitingFrames.wrappingAdd(frames, ordering: .relaxed) }
       return
     }
+    // A play with less than the prebuffer separated ahead (a pause made in the player stops the head right behind
+    // the cursor) would play a moment and stall: wait once instead.
+    if resumed, frontier - cursor < prebufferFrames { primed = false }
     if !primed {
       guard frontier - cursor >= prebufferFrames else {
         if wantPlaying { waitingFrames.wrappingAdd(frames, ordering: .relaxed) }
