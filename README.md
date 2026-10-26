@@ -40,7 +40,7 @@ The first time you press next with no later song buffered, macOS asks whether St
 
 ## Usage
 
-Play something in Spotify (or Music) and open a session; the daemon attaches while a session is open and the player is running, and lets go a minute after the last one closes. While attached, the daemon is the system's Now Playing app, so the keyboard's media keys, Control Center and headphone buttons reach it (whether they do so while Spotify also plays is still unchecked; see Known limits): play/pause, next (the next song already in the buffer, else the player skips to its next song, which plays from its start after about 7 s of silence while it buffers), previous (the start of this song, or the one before within its first 3 s). Pausing or playing in Spotify itself does the same to the daemon at once.
+Play something in Spotify (or Music) and open a session; the daemon attaches while a session is open and the player is running, and lets go a minute after the last one closes. While attached, the daemon is the system's Now Playing app, so the keyboard's media keys, Control Center and headphone buttons reach it (whether they do so while Spotify also plays is still unchecked; see Known limits): play/pause, next (the next song already in the buffer, else the player skips to its next song, which plays from its start after about 8 s of silence while it buffers), previous (the start of this song, or the one before within its first 3 s). Pausing or playing in Spotify itself does the same to the daemon at once.
 
 From a terminal or a hotkey tool:
 
@@ -73,7 +73,7 @@ Five settings, the same in both session sources:
 Three parts, and you pick the third:
 
 - **The daemon** (`daemon/`, Swift, a launchd user agent `com.benjaminfeder.stemmix`): taps the player's audio with a Core Audio process tap (the player is muted at the source while tapped), records it into memory, and plays it back as stems from a play cursor of its own. Pause stops the cursor at once while recording continues, so play resumes where you paused; next and previous move between songs in the buffer. While no session is open the tap is released and the player sounds normal.
-- **The separator** (`separator/`, Python): HTDemucs through `demucs-mlx` on the GPU. The daemon starts it while attached and sends it one 7.8 s window a second over a pipe; playback starts once 5 s of stems lie ahead, so the stems play about 7 s behind the music.
+- **The separator** (`separator/`, Python): HTDemucs through `demucs-mlx` on the GPU. The daemon starts it while attached and sends it one 7.8 s window a second over a pipe; playback starts once 5 s of stems lie ahead, so the stems play about 8.3 s behind the music.
 - **A session source**, one of:
   - **The Claude Code plugin** (`claude-plugin/`): each Claude Code session reports whether its main turn is running and not waiting on you (a permission dialog, a question, a plan to approve). Counts Claude Code sessions in any terminal.
   - **The herdr plugin** (`herdr-plugin/`): reports every top-level agent pane in [herdr](https://herdr.dev) (Claude Code, Codex, and any agent herdr detects), on this Mac and on every saved machine herdr can reach (`herdr machine list`); a pane counts while herdr shows it `working`, and not while it is `blocked` on you, `idle` or `done`. A machine that does not answer counts as no sessions. Counts only sessions running inside herdr.
