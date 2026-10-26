@@ -10,7 +10,7 @@
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>LSUIElement</key><true/>
-  <key>NSAppleEventsUsageDescription</key><string>Stemmix asks the music player to skip to its next song when you press next and no later song is buffered.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Stemmix plays and pauses the music player to keep its own buffer filled, and skips it when you press next with no later song buffered.</string>
   <key>NSAudioCaptureUsageDescription</key><string>Stemmix reads the music player's output to play it back as instrument stems, one more for each Claude session working.</string>
 </dict>
 </plist>

@@ -104,7 +104,7 @@ Built later (2026-10-24), C for `next` only: with no later song in the buffer, `
 
 **Pick: A.** This Mac runs macOS 26. Memory: the recording ring holds 6 minutes (138 MB at 48 kHz stereo float), allocated on attach and freed on detach. If you're paused longer than that, the oldest audio is dropped and the cursor moves up to the oldest kept. The stems ring holds 20 s. Playback starts, and restarts after a stall, only once 5 s of stems lie ahead of the cursor: started at the live edge with under a second separated ahead, a slow slice made it play and stall by turns.
 
-Fixed later (2026-10-26): that move ran every IO cycle as a jump, so past 10 minutes of pause the separator worked flat out on slices that were stale before they landed, and play after such a pause never got a slice and stayed silent until `next`. The move now keeps the generation, the worker restarts at the cursor when the cursor passes its frontier, and the worker separates nothing while paused. The separator caps MLX's buffer cache at 1 GB; unbounded it held about 5 GB beside a 0.22 GB model.
+Fixed later (2026-10-26): that move ran every IO cycle as a jump, so past 10 minutes of pause the separator worked flat out on slices that were stale before they landed, and play after such a pause never got a slice and stayed silent until `next`. The move now keeps the generation, the worker restarts at the cursor when the cursor passes its frontier, and the worker separated nothing while paused; choice 19 brings back the paused lookahead, idling only where the cursor is moved up every cycle. The separator caps MLX's buffer cache at 1 GB; unbounded it held about 5 GB beside a 0.22 GB model.
 
 ### 9. The separator's lifetime and install
 
@@ -171,14 +171,13 @@ The evidence: in about 17.7 h of an unbroken Now Playing claim with the tap live
 | B. The menu reads `Playback` and `Daemon` fields itself in `menuNeedsUpdate(_:)` | Fewer types. | Stale while the menu is open, and it reaches into other modules' internals. |
 | C. Parse the log | Decoupled. | The log is not a contract. |
 
-**Pick: A.** The snapshot is built on every tick, attached or not. Detached, it carries the reason, from the two halves of the attach decision (a session open in the last minute, the player running) and the last refused permission, which a successful attach clears: "No session open", "Spotify is not running", "Needs System Audio Recording permission" or "Attaching". Attached, `Playback.snapshot()` returns a value from one load each of the recording head and the cursor:
+**Pick: A.** The snapshot is built on every tick, attached or not. Detached, it carries the reason, from the two halves of the attach decision (switched on, the player running) and the last refused permission, which a successful attach clears: "Off", "Spotify is not running", "Needs System Audio Recording permission" or "Attaching". Attached, `Playback.snapshot()` returns a value from one load each of the recording head and the cursor:
 
 - whether stemmix plays: Playback's intent, the last play or pause it sent. The IO thread's own flag changes only inside its render call, a cycle after each command, and never when the IO proc is dead, so the intent is the truth for the menu, for `toggle` and for Now Playing; the `level` line's `state=` keeps the applied flag.
-- whether the music player itself is paused (its last reported state), so the state line can say "Spotify is paused", since Play then only plays what is buffered.
-- the song under the cursor; seconds behind the live edge (0 at live, not the 2.6 s the `level` line counts).
-- which of next, previous and live would act: `availableCommands` maps each through `resolve` with the inputs a command gets, so a greyed item never disagrees with what the command does. The live edge and the "at live" test are one pair of functions in `Transport.swift`, so the menu says "live" exactly when Back to live is greyed.
+- the song under the cursor; the recording buffered ahead of it ("Playing, 4:32 buffered"), from the same `bufferedFrames` the buffer rule reads (choice 19). The "Spotify is paused" line went with choice 19: Play now resumes Spotify too.
+- which of next and previous would act: `availableCommands` maps each through `resolve` with the inputs a command gets, so a greyed item never disagrees with what the command does. Back to live left the menu with choice 19; `--control live` stays.
 
-It never calls `status()`, which drains the meters behind the 10 s `level` line. Beside it the snapshot carries the counts, the player's name, the audible stems and the muffling cutoff, but not `tracks` or `mode`: no line shows `tracks`, and the mode reaches the menu only through the cutoff, which is nil when the mode does not muffle. It also carries the last `level` line's sample count: at 0 the state line reads "No audio from Spotify", because the tap counts every frame it is handed, silent or not, so 0 means no audio reached the daemon at all, whatever the cause. The first `level` line after an attach waits a full interval, so it never reads 0 by construction. Last, the Media keys line: "Media keys: Stemmix" or "Media keys: another app" from the daemon's belief (choice 18), hidden while detached or when the slot observer did not register. The stem names and the cutoff label are the `count` line's words, from the same two functions.
+It never calls `status()`, which drains the meters behind the 10 s `level` line. Beside it the snapshot carries the counts, the player's name, the audible stems and the muffling cutoff, but not `tracks` or `mode`: no line shows `tracks`, and the mode reaches the menu only through the cutoff, which is nil when the mode does not muffle. It also carries the last `level` line's sample count: at 0 the state line reads "No audio from Spotify", because the tap's meters count every frame it is handed, silent or not, so 0 means no audio reached the daemon at all, whatever the cause. The first `level` line after an attach waits a full interval, so it never reads 0 by construction. Last, the Media keys line: "Media keys: Stemmix" or "Media keys: another app" from the daemon's belief (choice 18), hidden while detached or when the slot observer did not register. The stem names and the cutoff label are the `count` line's words, from the same two functions.
 
 ### 15. The status bar icon
 
@@ -228,15 +227,37 @@ The daemon cannot read who holds the slot without linking MediaRemote, so it kee
 
 Proof, 2026-10-24 on macOS 26.6.2, with a probe accessory app that plays no audio: each pulse, Paused then Playing in the same run-loop turn, on the next turn or 50 ms apart, gave two `setting playback state` lines in mediaremoted's log (19:09:55.243 and .243 for the same-turn pair); a same-value set gave none. The probe's first Playing took the slot at 19:09:52.096, and `notifyutil` saw the `activePlayerPathDidChange` post through libnotify at 19:09:52.108.
 
+### 19. Stemmix owns playback; Spotify fills its buffer (2026-10-26)
+
+The user's rulings: play and pause control stemmix, and stemmix decides on its own whether Spotify plays. While stemmix plays, Spotify plays; while stemmix is paused, Spotify keeps playing, muted, until 5 minutes are buffered ahead of the cursor, then stemmix pauses it; play resumes Spotify at once. Spotify's own play and pause are a remote for stemmix, and a pause made there holds (no refill until a play). A song picked in Spotify plays now. An on/off switch in the menu replaces attaching only while a session is open: on, stemmix taps Spotify whenever it runs.
+
+| Option | For | Against |
+| --- | --- | --- |
+| A. A pure rule (`playerShouldPlay`: stemmix plays, or buffered under the target and not held) applied each tick by `Playback`, which sends play or pause through `PlayerControl` and expects the player's answer within 3 s | One decision, tested without a runtime; the user's key press and Spotify's play are decoupled. | Stemmix starts and stops Spotify often, and each start pulses the media keys (choice 18). |
+| B. Forward every key press to Spotify and keep the rest as today | No new state. | Pause would stop the recording too, so play after a pause has nothing buffered; the coupling the user ruled out. |
+| C. Pause Spotify at once and refill on a timer | Simple. | A timer is not the buffer; the cursor plays into nothing. |
+
+**Pick: A.** The parts:
+
+- **The recording moves only over sound.** A paused, tapped Spotify hands over exact zeros, and recording them would fill the buffer with silence once stemmix pauses Spotify. `Player.record` skips a block whose every sample is 0, so `head - cursor` is the music buffered. A state gate from the follower was rejected: the notification lands tens of ms after the change, so each pause would record that much silence and each resume drop that much music. Cost: exact digital silence inside a song is skipped too, so the cursor plays straight across it. The meters still count every frame.
+- **Own sends are told apart by their echo.** Each own play, pause or next expects one player event of its kind (`PendingEchoes`, shared with the media-key slot watch of choice 18) within `Config.playerEchoWindow`; a matching event inside it is followed silently, any other is the user's. A command the player does not take is not asked again until the wanted state changes, so a denied permission does not repeat every tick.
+- **A pick is judged by play time.** The follower counts a song's play time from Spotify's positions, plus wall time only while playing, so a pick after a stemmix-made pause is not read as the song ending.
+- **The paused separator still fills the lookahead.** While paused it separates up to 8 s ahead of the cursor, so play starts at once; it idles where the overflow moves the cursor every cycle (choice 8's case), which the 5-minute target, below the 6-minute ring minus its guard, never reaches.
+- **The attach reads Spotify's state.** A Spotify paused at the attach is the user's pause: stemmix starts paused and held rather than starting Spotify at every login or restart. A Spotify that plays starts stemmix playing; the cold start waits for the 5 s prebuffer.
+- **A re-attach keeps the intent.** A new output device, a new player process or a dead tap re-attaches inside one run with the last attach's play state and hold, not the player's: the player plays behind a paused stemmix, so its state would start the music.
+- **The belief is checked.** Spotify's notifications are the only thing that change stemmix's idea of its state; when Core Audio's "is outputting" disagrees for 3 s with no own command waiting, the belief takes Core Audio's word and the rule asks again, so a missed notification cannot stall the rule.
+- **The queue ending is not a pause.** A stop, or a pause within 5 s of the song's end with no next song, keeps stemmix playing out its buffer and holds the player (no ask) until a play. The exact notification Spotify posts at its queue's end is unverified.
+- **Off** (`~/.local/state/stemmix/off` exists) releases the tap, drops the buffer and the Now Playing claim. Off, Restart and Quit first pause a Spotify that fills behind a paused stemmix, so it is not heard minutes past where the user paused; a Spotify already paused stays where it is.
+
 ## Behaviour summary
 
-- Attached (a live session and the player outputting): Spotify is muted at the source. The recording runs. The cursor starts at the recording head and plays once stems exist (about 2.6 s).
+- Attached (switched on and the player running): Spotify is muted at the source. The recording runs while Spotify plays. The cursor starts at the recording head and plays once 5 s of stems lie ahead.
 - k = 0: the cursor keeps moving, gain 0. Unchanged from today.
 - `mode`: `instruments` thins by stems; `muffled` plays all four stems low-passed; `both` plays the k stems low-passed. The cutoff for k of N runs from `muffling_max` to `muffling_min` (choice 10).
-- Pause (key, menu, Spotify, or command): a 10 ms fade, then the cursor stops. The recording continues.
-- Play: from the cursor.
+- Pause (key, menu, or command): a 10 ms fade, then the cursor stops. Spotify keeps playing, muted, until 5 minutes are buffered, then stemmix pauses it. A pause made in Spotify pauses stemmix and holds: no refill until a play (choice 19).
+- Play (any source): from the cursor; Spotify resumes at once.
 - Next: the next song start in the buffer, else the player skips and the cursor plays the new song from its start. Previous: the start of the current song if it's buffered.
-- Detach (no live session for 60 s): the tap, the recording and the separator go away, and Spotify sounds normal at its own position. Any time-shift is lost.
+- Detach (switched off, or the player quit): the tap, the recording and the separator go away, and Spotify sounds normal at its own position. Any time-shift is lost.
 - Media keys (attached): the daemon is the Now Playing app with its own play state; each time the player starts playing it pulses its state through Playing to take the keys back, and a loss to another app is answered at most once every 30 s (choice 18).
 - Menu bar: one icon (dimmed waveform detached, waveform playing, pause symbol paused) and a menu with the song, the state, the sessions, the stems, the Media keys line, the transport commands greyed when they would do nothing, Open log, Restart and Quit (choices 12 to 17).
 

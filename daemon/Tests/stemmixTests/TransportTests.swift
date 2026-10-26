@@ -69,10 +69,28 @@ final class TransportTests: XCTestCase {
     XCTAssertTrue(isAtLive(cursor: 100_000, head: head, rate: rate, liveLag: liveLag))
   }
 
-  func testSecondsBehindLiveIsZeroAtTheSharedAtLiveBoundaryAndRoundsFartherBehind() {
-    XCTAssertEqual(secondsBehindLive(cursor: 98_500, head: head, rate: rate, liveLag: liveLag), 0)
-    XCTAssertEqual(secondsBehindLive(cursor: 98_499, head: head, rate: rate, liveLag: liveLag), 1)
-    XCTAssertEqual(secondsBehindLive(cursor: 97_999, head: head, rate: rate, liveLag: liveLag), 2)
+  func testBufferedIsTheRecordingAheadOfTheCursorNeverNegative() {
+    XCTAssertEqual(bufferedFrames(cursor: 40_000, head: head), 60_000)
+    XCTAssertEqual(bufferedFrames(cursor: head, head: head), 0)
+    XCTAssertEqual(bufferedFrames(cursor: head + 5, head: head), 0)
+  }
+
+  func testThePlayerPlaysWhileStemmixPlaysElseFillsToTheTargetUnlessHeld() {
+    XCTAssertTrue(playerShouldPlay(playing: true, held: false, buffered: 500, target: 300))
+    XCTAssertTrue(playerShouldPlay(playing: false, held: false, buffered: 299, target: 300))
+    XCTAssertFalse(playerShouldPlay(playing: false, held: false, buffered: 300, target: 300))
+    XCTAssertFalse(playerShouldPlay(playing: false, held: true, buffered: 0, target: 300))
+  }
+
+  func testAHeldPlayerIsNeverAskedToPlayEvenWhileStemmixPlays() {
+    XCTAssertFalse(playerShouldPlay(playing: true, held: true, buffered: 0, target: 300))
+  }
+
+  func testAnAttachTakesTheLastAttachsIntentElseThePlayersState() {
+    XCTAssertTrue(attachIntent(playerPlaying: true, resume: nil) == (true, false))
+    XCTAssertTrue(attachIntent(playerPlaying: false, resume: nil) == (false, true))
+    XCTAssertTrue(attachIntent(playerPlaying: true, resume: (false, false)) == (false, false))
+    XCTAssertTrue(attachIntent(playerPlaying: false, resume: (true, false)) == (true, false))
   }
 
   func testAvailableCommandsAreExactlyTheResolverCommandsThatWouldAct() {
@@ -84,7 +102,7 @@ final class TransportTests: XCTestCase {
     ]
 
     for testCase in cases {
-      let commands: [TransportCommand] = [.next, .previous, .live]
+      let commands: [TransportCommand] = [.next, .previous]
       let expected = Set(commands.filter {
         act($0, cursor: testCase.cursor, playing: testCase.playing, marks: testCase.marks) != .none
       })
@@ -137,20 +155,20 @@ final class TransportTests: XCTestCase {
   }
 
   func testPlayingToPausedPauses() {
-    var f = PlayerFollower()
+    var f = PlayerFollower(playerPlaying: true)
     _ = f.handle(event(.playing), now: 0, head: 0, behindLive: false)
     XCTAssertEqual(f.handle(event(.paused), now: 10, head: 100, behindLive: false).action, .pause)
   }
 
   func testPausedToPlayingPlays() {
-    var f = PlayerFollower()
+    var f = PlayerFollower(playerPlaying: true)
     _ = f.handle(event(.playing), now: 0, head: 0, behindLive: false)
     _ = f.handle(event(.paused), now: 10, head: 100, behindLive: false)
     XCTAssertEqual(f.handle(event(.playing), now: 20, head: 200, behindLive: false).action, .play)
   }
 
   func testNaturalSongEndMarksTheNewSongWithoutAnAction() {
-    var f = PlayerFollower()
+    var f = PlayerFollower(playerPlaying: true)
     _ = f.handle(event(.playing, track: "A", duration: 100), now: 0, head: 0, behindLive: true)
     let r = f.handle(event(.playing, track: "B"), now: 98, head: 98_000, behindLive: true)
     XCTAssertEqual(r.action, .none)
@@ -158,58 +176,119 @@ final class TransportTests: XCTestCase {
   }
 
   func testSkipWhileBehindLiveSeeksToTheHead() {
-    var f = PlayerFollower()
+    var f = PlayerFollower(playerPlaying: true)
     _ = f.handle(event(.playing, track: "A", duration: 100), now: 0, head: 0, behindLive: true)
     let r = f.handle(event(.playing, track: "B"), now: 30, head: 30_000, behindLive: true)
     XCTAssertEqual(r.seek, 30_000)
-    XCTAssertEqual(r.action, .none)
+    XCTAssertEqual(r.action, .play)
     XCTAssertEqual(r.mark?.frame, 30_000)
   }
 
-  func testSkipWhileLiveOnlyMarks() {
-    var f = PlayerFollower()
+  func testSkipWhileLivePlaysAndMarksWithoutASeek() {
+    var f = PlayerFollower(playerPlaying: true)
     _ = f.handle(event(.playing, track: "A", duration: 100), now: 0, head: 0, behindLive: false)
     let r = f.handle(event(.playing, track: "B"), now: 30, head: 30_000, behindLive: false)
-    XCTAssertEqual(r.action, .none)
+    XCTAssertEqual(r.action, .play)
+    XCTAssertNil(r.seek)
     XCTAssertNotNil(r.mark)
   }
 
   func testAwaitingSkipSeeksToTheHeadOnANewTrackEvenWhileLive() {
-    var f = PlayerFollower()
+    var f = PlayerFollower(playerPlaying: true)
     _ = f.handle(event(.playing, track: "A", duration: 100), now: 0, head: 0, behindLive: false)
-    let r = f.handle(event(.playing, track: "B"), now: 30, head: 30_000, behindLive: false, awaitingSkip: true)
+    f.expect(.trackChange, until: 33)
+    let r = f.handle(event(.playing, track: "B"), now: 30, head: 30_000, behindLive: false)
     XCTAssertEqual(r.seek, 30_000)
+    XCTAssertEqual(r.action, .none)
     XCTAssertEqual(r.mark, TrackMark(frame: 30_000, title: "TB", artist: "X"))
   }
 
   func testAwaitingSkipSeeksOnANaturalSongEnd() {
-    var f = PlayerFollower()
+    var f = PlayerFollower(playerPlaying: true)
     _ = f.handle(event(.playing, track: "A", duration: 100), now: 0, head: 0, behindLive: true)
-    let r = f.handle(event(.playing, track: "B"), now: 98, head: 98_000, behindLive: true, awaitingSkip: true)
+    f.expect(.trackChange, until: 101)
+    let r = f.handle(event(.playing, track: "B"), now: 98, head: 98_000, behindLive: true)
     XCTAssertEqual(r.seek, 98_000)
     XCTAssertEqual(r.mark?.frame, 98_000)
   }
 
   func testAwaitingSkipDoesNotSeekOnARepeatedEventForTheSameTrack() {
-    var f = PlayerFollower()
+    var f = PlayerFollower(playerPlaying: true)
     _ = f.handle(event(.playing), now: 0, head: 0, behindLive: false)
-    let r = f.handle(event(.playing), now: 5, head: 5_000, behindLive: false, awaitingSkip: true)
+    f.expect(.trackChange, until: 8)
+    let r = f.handle(event(.playing), now: 5, head: 5_000, behindLive: false)
     XCTAssertEqual(r.action, .none)
     XCTAssertNil(r.seek)
     XCTAssertNil(r.mark)
   }
 
   func testAwaitingSkipFromPausedKeepsThePlayStateAlongsideTheSeek() {
-    var f = PlayerFollower()
+    var f = PlayerFollower(playerPlaying: false)
     _ = f.handle(event(.paused, track: "A"), now: 0, head: 0, behindLive: false)
-    let r = f.handle(event(.playing, track: "B"), now: 30, head: 30_000, behindLive: false, awaitingSkip: true)
+    f.expect(.trackChange, until: 33)
+    let r = f.handle(event(.playing, track: "B"), now: 30, head: 30_000, behindLive: false)
     XCTAssertEqual(r.action, .play)
     XCTAssertEqual(r.seek, 30_000)
   }
 
   func testRepeatedEventsForTheSameTrackAddNoMark() {
-    var f = PlayerFollower()
+    var f = PlayerFollower(playerPlaying: true)
     _ = f.handle(event(.playing), now: 0, head: 0, behindLive: false)
     XCTAssertNil(f.handle(event(.playing), now: 5, head: 5_000, behindLive: false).mark)
+  }
+
+  func testAnOwnPauseOrPlayIsFollowedSilently() {
+    var f = PlayerFollower(playerPlaying: true)
+    f.expect(.paused, until: 3)
+    XCTAssertEqual(f.handle(event(.paused), now: 1, head: 0, behindLive: false).action, .none)
+    XCTAssertTrue(f.playerPaused)
+    f.expect(.playing, until: 13)
+    let resumed = f.handle(event(.playing), now: 11, head: 0, behindLive: false)
+    XCTAssertEqual(resumed.action, .none)
+    XCTAssertTrue(resumed.startedPlaying)
+    XCTAssertFalse(f.playerPaused)
+  }
+
+  func testAnEchoAfterItsWindowIsTheUsers() {
+    var f = PlayerFollower(playerPlaying: true)
+    f.expect(.paused, until: 3)
+    XCTAssertEqual(f.expire(at: 3.5), [.paused])
+    XCTAssertEqual(f.handle(event(.paused), now: 4, head: 0, behindLive: false).action, .pause)
+  }
+
+  func testAWithdrawnEchoClaimsNothing() {
+    var f = PlayerFollower(playerPlaying: true)
+    _ = f.handle(event(.playing, track: "A", duration: 100), now: 0, head: 0, behindLive: true)
+    f.expect(.trackChange, until: 33)
+    f.withdraw(.trackChange, at: 30)
+    XCTAssertFalse(f.isExpecting(.trackChange, at: 30))
+    let r = f.handle(event(.playing, track: "B"), now: 30, head: 30_000, behindLive: true)
+    XCTAssertEqual(r.action, .play)
+  }
+
+  /// Stemmix pauses the player for 100 s mid-song; by wall clock the song would have ended, by play time it has not.
+  func testAPickAfterAPauseIsJudgedByPlayTime() {
+    var f = PlayerFollower(playerPlaying: true)
+    _ = f.handle(event(.playing, track: "A", duration: 100, position: 0), now: 0, head: 0, behindLive: true)
+    f.expect(.paused, until: 53)
+    _ = f.handle(event(.paused, track: "A", position: nil), now: 50, head: 50_000, behindLive: true)
+    f.expect(.playing, until: 153)
+    _ = f.handle(event(.playing, track: "A", position: nil), now: 150, head: 50_000, behindLive: true)
+    let r = f.handle(event(.playing, track: "B"), now: 170, head: 70_000, behindLive: true)
+    XCTAssertEqual(r.action, .play)
+    XCTAssertEqual(r.seek, 70_000)
+  }
+
+  func testASongEndAfterAPauseIsNotAPick() {
+    var f = PlayerFollower(playerPlaying: true)
+    _ = f.handle(event(.playing, track: "A", duration: 100, position: 0), now: 0, head: 0, behindLive: true)
+    f.expect(.paused, until: 53)
+    _ = f.handle(event(.paused, track: "A", position: 50), now: 50, head: 50_000, behindLive: true)
+    f.expect(.playing, until: 153)
+    _ = f.handle(event(.playing, track: "A", position: 50), now: 150, head: 50_000, behindLive: true)
+    let r = f.handle(event(.playing, track: "B"), now: 196, head: 96_000, behindLive: true)
+    XCTAssertEqual(r.action, .none)
+    XCTAssertNil(r.seek)
+    XCTAssertNotNil(r.mark)
   }
 }

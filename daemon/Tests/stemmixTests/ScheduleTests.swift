@@ -4,27 +4,35 @@ import XCTest
 
 final class ScheduleTests: XCTestCase {
   private let shape = WindowShape(window: 780, hop: 100, fade: 5, minRight: 150, maxRight: 250, lookahead: 800, computeMargin: 25)
+  private let kept = 200_000
 
   func testWaitsWhenFrontierIsLookaheadPastCursor() {
-    XCTAssertNil(nextJob(head: 100_000, cursor: 1_000, frontier: 1_800, playing: true, shape: shape))
-    XCTAssertNil(nextJob(head: 100_000, cursor: 1_000, frontier: 5_000, playing: true, shape: shape))
-    XCTAssertNotNil(nextJob(head: 100_000, cursor: 1_000, frontier: 1_799, playing: true, shape: shape))
+    XCTAssertNil(nextJob(head: 100_000, cursor: 1_000, frontier: 1_800, playing: true, keptFrames: kept, shape: shape))
+    XCTAssertNil(nextJob(head: 100_000, cursor: 1_000, frontier: 5_000, playing: true, keptFrames: kept, shape: shape))
+    XCTAssertNotNil(nextJob(head: 100_000, cursor: 1_000, frontier: 1_799, playing: true, keptFrames: kept, shape: shape))
   }
 
-  func testWaitsWhilePausedEvenWithNothingSeparatedAhead() {
-    XCTAssertNil(nextJob(head: 100_000, cursor: 1_000, frontier: 1_000, playing: false, shape: shape))
+  func testSeparatesTheLookaheadWhilePaused() {
+    XCTAssertNotNil(nextJob(head: 100_000, cursor: 1_000, frontier: 1_000, playing: false, keptFrames: kept, shape: shape))
+    XCTAssertNil(nextJob(head: 100_000, cursor: 1_000, frontier: 1_800, playing: false, keptFrames: kept, shape: shape))
+  }
+
+  func testWaitsWhilePausedWhereTheOverflowMovesTheCursor() {
+    XCTAssertNotNil(nextJob(head: 1_000 + kept - 1, cursor: 1_000, frontier: 1_000, playing: false, keptFrames: kept, shape: shape))
+    XCTAssertNil(nextJob(head: 1_000 + kept, cursor: 1_000, frontier: 1_000, playing: false, keptFrames: kept, shape: shape))
+    XCTAssertNotNil(nextJob(head: 1_000 + kept, cursor: 1_000, frontier: 1_000, playing: true, keptFrames: kept, shape: shape))
   }
 
   func testWaitsWhenHeadIsLessThanMinRightPastSliceEnd() {
     // slice end = 1000 + 105
-    XCTAssertNil(nextJob(head: 1_105 + 149, cursor: 1_000, frontier: 1_000, playing: true, shape: shape))
-    XCTAssertNotNil(nextJob(head: 1_105 + 150, cursor: 1_000, frontier: 1_000, playing: true, shape: shape))
+    XCTAssertNil(nextJob(head: 1_105 + 149, cursor: 1_000, frontier: 1_000, playing: true, keptFrames: kept, shape: shape))
+    XCTAssertNotNil(nextJob(head: 1_105 + 150, cursor: 1_000, frontier: 1_000, playing: true, keptFrames: kept, shape: shape))
   }
 
   func testRightContextGrowsToMaxRightAndNoFurther() {
     let sliceEnd = 1_105
     func windowEnd(available: Int) -> Int? {
-      nextJob(head: sliceEnd + available, cursor: 1_000, frontier: 1_000, playing: true, shape: shape).map { $0.windowStart + shape.window }
+      nextJob(head: sliceEnd + available, cursor: 1_000, frontier: 1_000, playing: true, keptFrames: kept, shape: shape).map { $0.windowStart + shape.window }
     }
     XCTAssertEqual(windowEnd(available: 150), sliceEnd + 150)
     XCTAssertEqual(windowEnd(available: 200), sliceEnd + 200)
@@ -33,7 +41,7 @@ final class ScheduleTests: XCTestCase {
   }
 
   func testKeepStartAndKeepFramesLocateTheSliceInTheWindow() throws {
-    let job = try XCTUnwrap(nextJob(head: 100_000, cursor: 1_000, frontier: 1_000, playing: true, shape: shape))
+    let job = try XCTUnwrap(nextJob(head: 100_000, cursor: 1_000, frontier: 1_000, playing: true, keptFrames: kept, shape: shape))
     XCTAssertEqual(job.sliceStart, 1_000)
     XCTAssertEqual(job.keepFrames, shape.hop + shape.fade)
     XCTAssertEqual(job.keepStart, job.sliceStart - job.windowStart)

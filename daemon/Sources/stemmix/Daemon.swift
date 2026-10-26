@@ -16,7 +16,6 @@ final class Daemon {
   private var lastCounts: Counts?
   private var lastSessions: [String: Bool] = [:]
   private var workingEase = WorkingEase()
-  private var lastLiveAt = Date.distantPast
   private var nextAttachAt = Date.distantPast
   private var nextLevelAt = Date.distantPast
   private var nextPruneAt = Date.distantPast
@@ -26,6 +25,10 @@ final class Daemon {
   private var lastPlaying: Bool?
   private var playerObserver: NSObjectProtocol?
   private var observedPlayer: String?
+  /// The player key of the current attach.
+  private var attachedPlayer: String?
+  /// The last attach's play state and hold, kept for a re-attach inside this run (`attachIntent`).
+  private var resume: (playing: Bool, held: Bool)?
   private var statusMenu: StatusMenu?
   private var lastMenu: MenuSnapshot?
   private var lastInputSamples: Int?
@@ -76,6 +79,19 @@ final class Daemon {
 
   private func perform(_ action: MenuAction) {
     switch action {
+    case .toggleOnOff:
+      let on = !isOn
+      do {
+        if on {
+          try FileManager.default.removeItem(at: Config.offFile)
+        } else {
+          try FileManager.default.createDirectory(at: Config.stateDir, withIntermediateDirectories: true)
+          try Data().write(to: Config.offFile)
+        }
+        Log.line("switch on=\(on) source=menu")
+      } catch {
+        Log.line("switch on=\(on) source=menu failed error=\(error)")
+      }
     case let .transport(command): handle(command, source: "menu")
     case .openLog: NSWorkspace.shared.open(Config.logFile)
     case .restart:
@@ -124,7 +140,6 @@ final class Daemon {
     let counts = workingEase.summarize(
       sessions: sessions, nowMs: now.timeIntervalSince1970 * 1000, staleMs: Config.sessionStaleMs, holdSeconds: Config.workingHoldSeconds)
     logSessionChanges(sessions)
-    if counts.live > 0 { lastLiveAt = now }
     if now >= nextPruneAt {
       nextPruneAt = now.addingTimeInterval(60)
       for id in expiredSessions(sessions, nowMs: now.timeIntervalSince1970 * 1000, maxAgeMs: Config.sessionFileMaxAgeMs) {
@@ -137,14 +152,14 @@ final class Daemon {
 
     let targets = playerProcessObjects(bundlePrefix: Config.playerBundlePrefixes[player]!)
     let output = OutputDevice.current()
-    let sessionOpen = now.timeIntervalSince(lastLiveAt) < Config.detachAfterIdle
+    let on = isOn
     let playerRunning = !targets.isEmpty
-    let wantAttached = sessionOpen && playerRunning
+    let wantAttached = on && playerRunning
     let audible = audibleStems(mode: config.mode, working: counts.working, tracks: config.tracks)
     let cutoff = mufflingCutoffHz(config: config, working: counts.working)
 
     if let current = tap, !wantAttached || current.targets != targets || current.output != output {
-      detach(reason: !wantAttached ? "idle" : (current.targets != targets ? "player-changed" : "output-changed"))
+      detach(reason: !on ? "off" : !playerRunning ? "player-quit" : (current.targets != targets ? "player-changed" : "output-changed"))
     }
     if tap == nil, wantAttached, now >= nextAttachAt {
       attach(targets: targets, output: output, player: player)
@@ -155,7 +170,7 @@ final class Daemon {
     }
     let menu = MenuSnapshot(
       attachment: playback.map { .attached($0.snapshot()) }
-        ?? .detached(detachReason(sessionOpen: sessionOpen, playerRunning: playerRunning, permission: lastPermission)),
+        ?? .detached(detachReason(on: on, playerRunning: playerRunning, permission: lastPermission)),
       counts: counts,
       player: Config.playerNames[player]!,
       audible: audible,
@@ -169,7 +184,7 @@ final class Daemon {
   }
 
   private func tickAttached(_ playback: Playback, now: Date, config: ConfigFile, counts: Counts, targets: [AudioObjectID], audible: Int, cutoff: Double?) {
-    playback.expireForwardedSkip(now: now.timeIntervalSince1970)
+    playback.tick(now: now.timeIntervalSince1970, playerOutputting: isOutputting(targets))
     if now >= nextLevelAt {
       let status = playback.status()
       let dropped = tap?.droppedFrames.exchange(0, ordering: .relaxed) ?? 0
@@ -211,14 +226,19 @@ final class Daemon {
     var created: (ProcessTap, Playback)?
     do {
       let tap = try ProcessTap(targets: targets, output: output)
-      let playback = Playback(rate: Int(tap.tapFormat.mSampleRate)) { [weak self] done in
-        self?.playerControl.skipToNextTrack(player: player, done: done)
+      let playback = Playback(
+        rate: Int(tap.tapFormat.mSampleRate), playerPlaying: isOutputting(targets), resume: resume,
+        bufferAheadSeconds: Config.bufferAheadSeconds
+      ) { [weak self] command, done in
+        self?.playerControl.send(command, player: player, done: done)
       }
       created = (tap, playback)
       playback.start()
       try tap.start { input, output, frames in playback.player.render(input, output, frames: frames) }
       self.tap = tap
       self.playback = playback
+      attachedPlayer = player
+      resume = nil
       lastPermission = nil
       lastInputSamples = nil
       // Read the first level line a full interval in: read now, before any IO cycle, it counts 0 samples.
@@ -261,6 +281,9 @@ final class Daemon {
     }
   }
 
+  /// Switched on from the menu: no off file. On, stemmix taps the player whenever it runs.
+  private var isOn: Bool { !FileManager.default.fileExists(atPath: Config.offFile.path) }
+
   /// One daemon per user: a second copy (a Finder double-click on the app) would tap the player a second time.
   /// The lock is held for the process's life and released by the kernel when it exits.
   private static func takeInstanceLock() -> Bool {
@@ -272,11 +295,21 @@ final class Daemon {
   /// `wait`: how long to block on the teardown, before an exit; nil lets it finish on its own thread.
   private func detach(reason: String, wait: TimeInterval? = nil) {
     silentSince = nil
+    if let playback, let player = attachedPlayer {
+      // A re-attach inside this run picks up where this one was; any other detach hands the player back.
+      resume = ["output-changed", "player-changed", "no-samples"].contains(reason) ? (playback.intendsPlaying, playback.playerHeld) : nil
+      // The tap mutes the player: pause one that fills behind a paused stemmix before the tap goes, or it is heard
+      // past where the user paused.
+      if resume == nil, playback.playerFillsUnheard {
+        playerControl.sendNow(.pause, player: player, timeout: Config.exitTeardownWait)
+      }
+    }
     nowPlaying?.release()
     playback?.stop()
     tap?.stop(wait: wait)
     tap = nil
     playback = nil
+    attachedPlayer = nil
     lastInputSamples = nil
     lastAudible = nil
     lastCutoff = nil

@@ -27,9 +27,11 @@ func takesSlot(from last: MPNowPlayingPlaybackState, to new: MPNowPlayingPlaybac
 /// posts, which name no holder. A post within `Config.nowPlayingChangeWindow` of an own move of the slot is
 /// stemmix's own; any other post is a loss unless an own set answers it within the window.
 struct SlotWatch {
+  private enum OwnMove: Equatable { case slot }
+
   private(set) var belief: SlotBelief?
-  /// The deadline of each own move's post still to come, oldest first.
-  private var ownChangesUntil: [TimeInterval] = []
+  /// Each own move's post still to come.
+  private var ownChanges = PendingEchoes<OwnMove>()
   private var unexplainedChangeAt: TimeInterval?
   private var lastRetakeAt: TimeInterval?
 
@@ -37,7 +39,7 @@ struct SlotWatch {
   mutating func tookSlot(at now: TimeInterval) {
     // Holding with nothing unexplained, the set moves no slot, so mediaremoted posts nothing to wait for.
     if belief != .held || unexplainedChangeAt != nil {
-      ownChangesUntil.append(now + Config.nowPlayingChangeWindow)
+      ownChanges.expect(.slot, until: now + Config.nowPlayingChangeWindow)
     }
     unexplainedChangeAt = nil
     belief = .held
@@ -46,26 +48,23 @@ struct SlotWatch {
   /// The claim's release: the belief starts over, and a held slot moves back to its previous holder, a post
   /// to come that a claim right after it (a re-attach in the same tick) must not read as a loss.
   mutating func released(at now: TimeInterval) {
-    var pending = ownChangesUntil.filter { $0 >= now }
-    if belief == .held { pending.append(now + Config.nowPlayingChangeWindow) }
+    var pending = ownChanges
+    _ = pending.expire(at: now)
+    if belief == .held { pending.expect(.slot, until: now + Config.nowPlayingChangeWindow) }
     self = SlotWatch()
-    ownChangesUntil = pending
+    ownChanges = pending
   }
 
   /// A path-change post: `.held` when it is one of stemmix's own expected moves, else nil (judged by `settle`).
   mutating func pathChanged(at now: TimeInterval) -> SlotEvent? {
-    ownChangesUntil.removeAll { $0 < now }
-    if !ownChangesUntil.isEmpty {
-      ownChangesUntil.removeFirst()
-      return .held
-    }
+    if ownChanges.claim(.slot, at: now) { return .held }
     if unexplainedChangeAt == nil { unexplainedChangeAt = now }
     return nil
   }
 
   /// `.lost(retake:)` once a foreign post has gone a full window unanswered, else nil.
   mutating func settle(now: TimeInterval) -> SlotEvent? {
-    ownChangesUntil.removeAll { $0 < now }
+    _ = ownChanges.expire(at: now)
     guard let changedAt = unexplainedChangeAt, now - changedAt >= Config.nowPlayingChangeWindow else { return nil }
     unexplainedChangeAt = nil
     belief = .lost
