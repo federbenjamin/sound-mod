@@ -2,7 +2,7 @@ import AppKit
 
 /// The menu bar item: shows a `MenuContent` and reports clicks. Every decision lives in `menuContent`.
 final class StatusMenu: NSObject {
-  private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+  private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
   private let onAction: (MenuAction) -> Void
   private let info = (0..<MenuLayout.infoLines).map { _ in NSMenuItem(title: "", action: nil, keyEquivalent: "") }
   private var actions: [NSMenuItem] = []
@@ -74,6 +74,10 @@ final class StatusMenu: NSObject {
       image?.isTemplate = true
       button.image = image
       button.appearsDisabled = content.icon == .detached
+      button.imagePosition = content.iconText == nil ? .imageOnly : .imageLeading
+      button.attributedTitle = NSAttributedString(
+        string: content.iconText ?? "",
+        attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .regular)])
     }
     for (line, text) in zip(info, content.lines) {
       line.title = text ?? ""
@@ -91,6 +95,7 @@ final class StatusMenu: NSObject {
       option.title = model.title
       option.isEnabled = model.isEnabled
       option.state = model.isChecked ? .on : .off
+      option.toolTip = model.toolTip
     }
   }
 

@@ -39,7 +39,6 @@ struct MenuSnapshot: Equatable {
   let cutoffHz: Double?
   /// The last level line's sample count; nil until the first after an attach.
   let inputSamples: Int?
-  let mediaKeys: SlotBelief?
 }
 
 enum MenuIcon: Equatable { case detached, playing, paused }
@@ -56,6 +55,7 @@ struct MenuItem: Equatable {
   let isEnabled: Bool
   let action: MenuAction
   var isChecked = false
+  var toolTip: String? = nil
 }
 
 /// One submenu of Settings: its title with the current value, and one item per option of its `SettingKind`.
@@ -67,33 +67,33 @@ struct SettingsGroup: Equatable {
 
 struct MenuContent: Equatable {
   let icon: MenuIcon
+  /// Beside the icon: how full the song is, working sessions out of `tracks`; nil while detached.
+  let iconText: String?
   let song: String
   let state: String
   let sessions: String
   /// nil: hidden.
-  let stems: String?
-  /// nil: hidden.
-  let mediaKeys: String?
+  let hearing: String?
   /// One per action of `MenuLayout.actionGroups`, in its order.
   let items: [MenuItem]
   /// One per group of `MenuLayout.settings`, in its order.
   let settings: [SettingsGroup]
 
   /// The info lines in menu order, `MenuLayout.infoLines` of them; nil: hidden.
-  var lines: [String?] { [song, state, sessions, stems, mediaKeys] }
+  var lines: [String?] { [song, state, sessions, hearing] }
 }
 
 /// The menu's shape, built once by StatusMenu and filled by `menuContent`: the info lines, then each group of
 /// action items after a separator, with the Settings submenu heading the `settingsGroup`th.
 enum MenuLayout {
-  static let infoLines = 5
+  static let infoLines = 4
   static let actionGroups: [[MenuAction]] = [
-    [.toggleOnOff],
     [.transport(.toggle), .transport(.next), .transport(.previous)],
     [.openLog],
+    [.toggleOnOff],
     [.restart, .quit],
   ]
-  static let settingsGroup = 2
+  static let settingsGroup = 1
   static let settings = SettingKind.allCases
 }
 
@@ -141,11 +141,25 @@ private func settingNumber(_ value: Double) -> String {
   value == value.rounded() ? String(Int(value)) : String(value)
 }
 
-/// A muffling level with the cutoff it sets: "0 (none)", "7 (1.5 kHz)", "10 (150 Hz)".
-func mufflingLabel(_ level: Double) -> String {
-  let cutoff = mufflingCutoffHz(level: level).map { $0 < 1000 ? String(format: "%.0f Hz", $0) : String(format: "%.1f kHz", $0 / 1000) }
-  return "\(settingNumber(level)) (\(cutoff ?? "none"))"
+/// A cutoff as the menu shows it: "651 Hz", "1.7 kHz".
+private func hzText(_ hz: Double) -> String {
+  hz < 1000 ? String(format: "%.0f Hz", hz) : String(format: "%.1f kHz", hz / 1000)
 }
+
+/// A muffling level with the cutoff it sets: "0 (none)", "5 (1.7 kHz)", "10 (150 Hz)".
+func mufflingLabel(_ level: Double) -> String {
+  "\(settingNumber(level)) (\(mufflingCutoffHz(level: level).map(hzText) ?? "none"))"
+}
+
+/// What you hear, in words: "Hearing: drums, bass", "Hearing: everything, muffled at 651 Hz".
+func hearingLine(audible: Int, cutoffHz: Double?) -> String {
+  let names = audibleStemList(audible).map { $0 == .other ? "other instruments" : $0.name }
+  var line = "Hearing: " + (names.isEmpty ? "nothing" : names.count == Stem.allCases.count ? "everything" : names.joined(separator: ", "))
+  if let cutoffHz, !names.isEmpty { line += ", muffled at \(hzText(cutoffHz))" }
+  return line
+}
+
+private func sessionsText(_ n: Int) -> String { "\(n) \(n == 1 ? "session" : "sessions")" }
 
 private func modeName(_ mode: ListeningMode) -> String {
   switch mode {
@@ -155,26 +169,42 @@ private func modeName(_ mode: ListeningMode) -> String {
   }
 }
 
+private func modeToolTip(_ mode: ListeningMode) -> String {
+  switch mode {
+  case .instruments: return "Fewer working sessions, fewer instruments."
+  case .muffled: return "Every instrument plays, more muffled with fewer working sessions."
+  case .both: return "Fewer instruments, and muffled."
+  }
+}
+
 private func settingsGroup(_ kind: SettingKind, config: ConfigFile) -> SettingsGroup {
   let title: String
   switch kind {
-  case .tracks: title = "Tracks: \(config.tracks)"
+  case .tracks: title = "Full song at: \(sessionsText(config.tracks))"
   case .player: title = "Player: \(Config.playerNames[Config.knownPlayer(config.player)]!)"
   case .mode: title = "Mode: \(modeName(config.mode))"
-  case .mufflingMax: title = "Muffling, no session working: \(settingNumber(config.mufflingMax))"
-  case .mufflingMin: title = "Muffling, every session working: \(settingNumber(config.mufflingMin))"
+  case .mufflingMax: title = "Muffling at 1 session: \(settingNumber(config.mufflingMax))"
+  case .mufflingMin: title = "Muffling at \(sessionsText(config.tracks)): \(settingNumber(config.mufflingMin))"
   }
   let items = kind.options.map { option -> MenuItem in
     let label: String
+    var toolTip: String?
     switch option {
-    case let .tracks(n): label = String(n)
+    case let .tracks(n): label = sessionsText(n)
     case let .player(key): label = Config.playerNames[key] ?? key
-    case let .mode(mode): label = modeName(mode)
+    case let .mode(mode):
+      label = modeName(mode)
+      toolTip = modeToolTip(mode)
     case let .mufflingMax(level), let .mufflingMin(level): label = mufflingLabel(level)
     }
-    return MenuItem(title: label, isEnabled: true, action: .set(option), isChecked: config.with(option) == config)
+    return MenuItem(title: label, isEnabled: true, action: .set(option), isChecked: config.with(option) == config, toolTip: toolTip)
   }
-  let isEnabled = config.mode.muffles || (kind != .mufflingMax && kind != .mufflingMin)
+  let isEnabled: Bool
+  switch kind {
+  case .mufflingMax: isEnabled = config.mode.muffles && config.tracks > 1
+  case .mufflingMin: isEnabled = config.mode.muffles
+  case .tracks, .player, .mode: isEnabled = true
+  }
   return SettingsGroup(title: title, isEnabled: isEnabled, options: items)
 }
 
@@ -195,7 +225,8 @@ func menuContent(_ snapshot: MenuSnapshot) -> MenuContent {
     case .needsPermission: state = "Needs System Audio Recording permission"
     case .attaching: state = "Attaching"
     }
-    return MenuContent(icon: .detached, song: "Not attached", state: state, sessions: sessions, stems: nil, mediaKeys: nil, items: items(nil),
+    return MenuContent(
+      icon: .detached, iconText: nil, song: "Not attached", state: state, sessions: sessions, hearing: nil, items: items(nil),
       settings: settings)
 
   case let .attached(playback):
@@ -212,11 +243,10 @@ func menuContent(_ snapshot: MenuSnapshot) -> MenuContent {
     } else {
       state = "\(playback.playing ? "Playing" : "Paused"), \(buffered)"
     }
-    var stems = "Stems: \(stemNames(audible: snapshot.audible))"
-    if let cutoff = snapshot.cutoffHz { stems += ", muffled at \(cutoffLabel(cutoff))" }
-    let mediaKeys = snapshot.mediaKeys.map { $0 == .held ? "Media keys: Stemmix" : "Media keys: another app" }
+    let tracks = snapshot.config.tracks
     return MenuContent(
-      icon: playback.playing ? .playing : .paused, song: song, state: state, sessions: sessions, stems: stems,
-      mediaKeys: mediaKeys, items: items(playback), settings: settings)
+      icon: playback.playing ? .playing : .paused, iconText: "\(min(counts.working, tracks))/\(tracks)", song: song, state: state,
+      sessions: sessions, hearing: hearingLine(audible: snapshot.audible, cutoffHz: snapshot.cutoffHz), items: items(playback),
+      settings: settings)
   }
 }

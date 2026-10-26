@@ -185,8 +185,7 @@ final class Daemon {
       config: config,
       audible: audible,
       cutoffHz: cutoff,
-      inputSamples: lastInputSamples,
-      mediaKeys: nowPlaying?.mediaKeys)
+      inputSamples: lastInputSamples)
     if menu != lastMenu {
       statusMenu?.show(menuContent(menu))
       lastMenu = menu

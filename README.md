@@ -34,9 +34,9 @@ The first time stemmix plays or pauses Spotify (or Music) to keep its buffer fil
 - **One more instrument for each working session.** The song you already have playing comes through as drums, bass, other and vocals, and the count of working sessions decides how many of them you hear.
 - **Pause that lands at once, play that never waits.** Pause stops the sound immediately; Spotify keeps playing, muted, until 5 minutes are buffered, then stemmix pauses it, so play resumes at once and Spotify starts again with it. Next and previous move between the songs in the buffer; next with no later song buffered skips the song in Spotify, then plays the new one from its start once it has buffered a few seconds.
 - **Media keys, Control Center and headphone buttons.** While attached, the daemon is the system's Now Playing app, and when Spotify starts playing it pulses its play state to take the keys back. Pausing or playing in Spotify itself does the same to the daemon, and a song picked in Spotify plays now. Known limits below lists what is still unchecked.
-- **A menu bar icon.** It shows whether the daemon is detached (dimmed), playing or paused; its menu names the song, how much is buffered ahead or why it is not attached, the working sessions, the stems you hear, and who holds the media keys. Turn Stemmix Off/On, Play/Pause, Next and Previous are there too, with Settings, Open log, Restart Stemmix and Quit Stemmix.
+- **A menu bar icon.** It shows whether the daemon is detached (dimmed), playing or paused, and while attached how full the song is: working sessions out of Full song at ("2/4"). Its menu names the song, how much is buffered ahead or why it is not attached, the working sessions, and what you hear ("Hearing: drums, bass"). Play/Pause, Next and Previous are there too, with Settings, Open log, Turn Stemmix Off/On, Restart Stemmix and Quit Stemmix.
 - **Two session sources.** A Claude Code plugin counts Claude Code sessions in any terminal; a herdr plugin counts every top-level agent pane herdr shows as working, on this Mac and on the machines saved in herdr.
-- **Thin the song your way.** Take instruments away as fewer sessions work (the default), or keep every instrument and muffle the sound like through a wall, or both at once. How muffled it gets at the quietest end is a 0 to 10 setting.
+- **Thin the song your way.** Take instruments away as fewer sessions work (the default), or keep every instrument and muffle the sound like through a wall, or both at once. How muffled it gets with one session working is a 0 to 10 setting.
 - **One switch.** While stemmix is on, Spotify is only heard through it, whenever Spotify runs: with no session working you hear silence. Turn it off from the menu and Spotify plays as normal.
 
 ## Usage
@@ -63,11 +63,11 @@ Five settings, in the menu bar icon's Settings submenu. A pick applies within a 
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| Tracks (`tracks`) | `4` | N: how many working sessions it takes to hear the whole song. The menu offers 1 to 8. |
+| Full song at (`tracks`) | `4` | N: how many working sessions it takes to hear the whole song. The menu offers 1 to 8. |
 | Player (`player`) | Spotify (`spotify`) | Spotify or Music (`music`): which app the daemon taps. |
 | Mode (`mode`) | Instruments (`instruments`) | How the song thins with fewer working sessions. Instruments: with k of N working you hear the first ceil(4k/N) of drums, bass, other, vocals. Muffled (`muffled`): every instrument plays, low-passed. Both (`both`): the k instruments, low-passed. |
-| Muffling, no session working (`muffling_max`) | `7` | How muffled the sound is with no session working, 0 (not at all) to 10 (most, a 150 Hz cutoff); the menu shows each level's cutoff. Muffled and Both only. |
-| Muffling, every session working (`muffling_min`) | `0` | How muffled it is with N sessions working. 0 means the full sound. Between the two the muffling runs in a straight line, so with the defaults one of four working sessions is cut off at about 1.5 kHz, two at 3.6 kHz, three at 8.5 kHz. Muffled and Both only. |
+| Muffling at 1 session (`muffling_max`) | `5` | How muffled the sound is with one session working, 0 (not at all) to 10 (most, a 150 Hz cutoff); the menu shows each level's cutoff. Muffled and Both only, and not with Full song at 1. |
+| Muffling at N sessions (`muffling_min`) | `0` | How muffled it is with N sessions working. 0 means the full sound. Between the two the muffling runs in a straight line, so with the defaults one of four working sessions is cut off at about 1.7 kHz, two at 3.9 kHz, three at 8.8 kHz. Muffled and Both only. |
 
 ## How it works
 
@@ -86,7 +86,7 @@ The daemon and the session sources meet in `~/.local/state/stemmix/`; the daemon
 ### Known limits
 
 - Whether the media keys reach the daemon while Spotify plays has not been checked by hand yet: the pulse that takes them back was proved with a probe app against mediaremoted, not with the installed daemon and Spotify. If they do not, the keys go to Spotify, and following Spotify's own pause still stops the sound at once; but such a pause is one made in Spotify, so it holds and does not fill the buffer.
-- When another app (a browser video) takes the media keys, the daemon takes them back at most once every 30 s, so a second take inside that time leaves them with that app until stemmix or Spotify next starts playing. The menu's Media keys line is the daemon's belief: macOS does not say who holds them. A Spotify that was paused when the daemon attached (at login or a switch-on) counts as paused by you: stemmix starts paused and does not start it. Switching off, Restart and Quit pause a Spotify that was filling behind a paused stemmix first, so it is not heard past where you paused. When Spotify ends its own queue, stemmix plays out what it has buffered and does not start Spotify again until you press play.
+- When another app (a browser video) takes the media keys, the daemon takes them back at most once every 30 s, so a second take inside that time leaves them with that app until stemmix or Spotify next starts playing. A Spotify that was paused when the daemon attached (at login or a switch-on) counts as paused by you: stemmix starts paused and does not start it. Switching off, Restart and Quit pause a Spotify that was filling behind a paused stemmix first, so it is not heard past where you paused. When Spotify ends its own queue, stemmix plays out what it has buffered and does not start Spotify again until you press play.
 - The music keeps playing silently at zero working sessions; it is not paused.
 - Apple Music streamed (FairPlay) tracks and its track notifications were not verified here.
 - The music comes out of the Mac the daemon runs on. The Claude Code plugin counts sessions on that Mac only; the herdr plugin also counts the saved machines herdr can reach, with a second or two of lag for those.

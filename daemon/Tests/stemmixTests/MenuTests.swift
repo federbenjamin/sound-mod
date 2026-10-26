@@ -18,8 +18,7 @@ final class MenuTests: XCTestCase {
       config: ConfigFile(tracks: 4, player: "spotify"),
       audible: 2,
       cutoffHz: 3607.6,
-      inputSamples: 480,
-      mediaKeys: .held
+      inputSamples: 480
     )
   }
 
@@ -58,17 +57,17 @@ final class MenuTests: XCTestCase {
     let content = menuContent(attachedSnapshot())
 
     XCTAssertEqual(content.icon, .playing)
+    XCTAssertEqual(content.iconText, "2/4")
     XCTAssertEqual(content.song, "The Song — The Artist")
     XCTAssertEqual(content.state, "Playing, 4:32 buffered")
     XCTAssertEqual(content.sessions, "2 of 3 sessions working")
-    XCTAssertEqual(content.stems, "Stems: drums+bass, muffled at 3608Hz")
-    XCTAssertEqual(content.mediaKeys, "Media keys: Stemmix")
+    XCTAssertEqual(content.hearing, "Hearing: drums, bass, muffled at 3.6 kHz")
     XCTAssertEqual(content.items.map(\.title), [
-      "Turn Stemmix Off", "Pause", "Next", "Previous", "Open log", "Restart Stemmix", "Quit Stemmix",
+      "Pause", "Next", "Previous", "Open log", "Turn Stemmix Off", "Restart Stemmix", "Quit Stemmix",
     ])
     XCTAssertEqual(content.items.map(\.action), [
-      .toggleOnOff, .transport(.toggle), .transport(.next), .transport(.previous),
-      .openLog, .restart, .quit,
+      .transport(.toggle), .transport(.next), .transport(.previous),
+      .openLog, .toggleOnOff, .restart, .quit,
     ])
     XCTAssertEqual(content.items.map(\.isEnabled), [true, true, true, true, true, true, true])
   }
@@ -78,8 +77,8 @@ final class MenuTests: XCTestCase {
 
     XCTAssertEqual(content.icon, .paused)
     XCTAssertEqual(content.state, "Paused, 4:32 buffered")
-    XCTAssertEqual(content.items[1].title, "Play")
-    XCTAssertEqual(content.items.map(\.isEnabled), [true, true, false, false, true, true, true])
+    XCTAssertEqual(content.items[0].title, "Play")
+    XCTAssertEqual(content.items.map(\.isEnabled), [true, false, false, true, true, true, true])
   }
 
   func testDetachedMenuNamesEachAttachBlockerAndHidesAttachedDetails() {
@@ -97,20 +96,19 @@ final class MenuTests: XCTestCase {
         config: ConfigFile(tracks: 4, player: "spotify"),
         audible: 0,
         cutoffHz: nil,
-        inputSamples: nil,
-        mediaKeys: nil
+        inputSamples: nil
       ))
 
       XCTAssertEqual(content.icon, .detached)
+      XCTAssertNil(content.iconText)
       XCTAssertEqual(content.song, "Not attached")
       XCTAssertEqual(content.state, state)
       XCTAssertEqual(content.sessions, "0 of 1 session working")
-      XCTAssertNil(content.stems)
-      XCTAssertNil(content.mediaKeys)
+      XCTAssertNil(content.hearing)
       XCTAssertEqual(content.items.map(\.title), [
-        reason == .off ? "Turn Stemmix On" : "Turn Stemmix Off", "Play", "Next", "Previous", "Open log", "Restart Stemmix", "Quit Stemmix",
+        "Play", "Next", "Previous", "Open log", reason == .off ? "Turn Stemmix On" : "Turn Stemmix Off", "Restart Stemmix", "Quit Stemmix",
       ])
-      XCTAssertEqual(content.items.map(\.isEnabled), [true, false, false, false, true, true, true])
+      XCTAssertEqual(content.items.map(\.isEnabled), [false, false, false, true, true, true, true])
     }
   }
 
@@ -126,8 +124,7 @@ final class MenuTests: XCTestCase {
       config: ConfigFile(tracks: 4, player: "music"),
       audible: 0,
       cutoffHz: nil,
-      inputSamples: 0,
-      mediaKeys: .lost
+      inputSamples: 0
     ))
     let pausedShort = menuContent(MenuSnapshot(
       attachment: .attached(PlaybackSnapshot(
@@ -140,17 +137,14 @@ final class MenuTests: XCTestCase {
       config: ConfigFile(tracks: 4, player: "music"),
       audible: 0,
       cutoffHz: nil,
-      inputSamples: nil,
-      mediaKeys: nil
+      inputSamples: nil
     ))
 
     XCTAssertEqual(silent.song, "Unknown song")
     XCTAssertEqual(silent.state, "No audio from Music")
-    XCTAssertEqual(silent.stems, "Stems: silent")
-    XCTAssertEqual(silent.mediaKeys, "Media keys: another app")
+    XCTAssertEqual(silent.hearing, "Hearing: nothing")
     XCTAssertEqual(pausedShort.song, "Title only")
     XCTAssertEqual(pausedShort.state, "Paused, 0:03 buffered")
-    XCTAssertNil(pausedShort.mediaKeys)
   }
 
   /// StatusMenu builds its items and separators once from MenuLayout, so every content must fit that layout.
@@ -158,7 +152,7 @@ final class MenuTests: XCTestCase {
     let detached = [DetachReason.off, .playerNotRunning, .needsPermission, .attaching].map { reason in
       MenuSnapshot(
         attachment: .detached(reason), counts: Counts(live: 0, working: 0), config: ConfigFile(tracks: 4, player: "spotify"), audible: 0,
-        cutoffHz: nil, inputSamples: nil, mediaKeys: nil)
+        cutoffHz: nil, inputSamples: nil)
     }
     let attached = [
       attachedSnapshot(),
@@ -175,22 +169,27 @@ final class MenuTests: XCTestCase {
       XCTAssertEqual(content.settings.map(\.options.count), MenuLayout.settings.map(\.options.count))
       XCTAssertEqual(content.settings.flatMap(\.options).map(\.action), MenuLayout.settings.flatMap(\.options).map { .set($0) })
     }
-    XCTAssertEqual(MenuLayout.actionGroups.map(\.count), [1, 3, 1, 2])
+    XCTAssertEqual(MenuLayout.actionGroups.map(\.count), [3, 1, 1, 2])
   }
 
   func testSettingsShowEachValueCheckTheCurrentOneAndGreyMufflingWithoutIt() {
     func settings(_ config: ConfigFile) -> [SettingsGroup] {
       menuContent(MenuSnapshot(
         attachment: .detached(.off), counts: Counts(live: 0, working: 0), config: config, audible: 0,
-        cutoffHz: nil, inputSamples: nil, mediaKeys: nil)).settings
+        cutoffHz: nil, inputSamples: nil)).settings
     }
     let both = settings(ConfigFile(tracks: 3, player: "music", mode: .both, mufflingMax: 7, mufflingMin: 5.5))
 
     XCTAssertEqual(both.map(\.title), [
-      "Tracks: 3", "Player: Music", "Mode: Both", "Muffling, no session working: 7", "Muffling, every session working: 5.5",
+      "Full song at: 3 sessions", "Player: Music", "Mode: Both", "Muffling at 1 session: 7", "Muffling at 3 sessions: 5.5",
     ])
     XCTAssertEqual(both.map(\.isEnabled), [true, true, true, true, true])
-    XCTAssertEqual(both.map { $0.options.filter(\.isChecked).map(\.title) }, [["3"], ["Music"], ["Both"], ["7 (651 Hz)"], []])
+    XCTAssertEqual(both.map { $0.options.filter(\.isChecked).map(\.title) }, [["3 sessions"], ["Music"], ["Both"], ["7 (651 Hz)"], []])
+    XCTAssertEqual(both[0].options.first?.title, "1 session")
+    XCTAssertEqual(both[2].options.map(\.toolTip), [
+      "Fewer working sessions, fewer instruments.", "Every instrument plays, more muffled with fewer working sessions.",
+      "Fewer instruments, and muffled.",
+    ])
     XCTAssertEqual(both[1].options.map(\.title), ["Spotify", "Music"])
     XCTAssertEqual(both[2].options.map(\.title), ["Instruments", "Muffled", "Both"])
     XCTAssertEqual(both[3].options.first?.title, "0 (none)")
@@ -198,6 +197,16 @@ final class MenuTests: XCTestCase {
 
     let instruments = settings(ConfigFile(tracks: 4, player: "spotify"))
     XCTAssertEqual(instruments.map(\.isEnabled), [true, true, true, false, false])
+    let oneTrack = settings(ConfigFile(tracks: 1, player: "spotify", mode: .muffled))
+    XCTAssertEqual(oneTrack.map(\.isEnabled), [true, true, true, false, true], "one track never hears the 1-session level apart")
+  }
+
+  func testHearingLineNamesTheInstrumentsInWords() {
+    XCTAssertEqual(hearingLine(audible: 0, cutoffHz: 651), "Hearing: nothing")
+    XCTAssertEqual(hearingLine(audible: 1, cutoffHz: nil), "Hearing: drums")
+    XCTAssertEqual(hearingLine(audible: 3, cutoffHz: nil), "Hearing: drums, bass, other instruments")
+    XCTAssertEqual(hearingLine(audible: 4, cutoffHz: 651), "Hearing: everything, muffled at 651 Hz")
+    XCTAssertEqual(hearingLine(audible: 4, cutoffHz: 1732.1), "Hearing: everything, muffled at 1.7 kHz")
   }
 
   func testBufferedLabelIsMinutesAndTwoDigitSeconds() {
