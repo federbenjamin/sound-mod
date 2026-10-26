@@ -90,6 +90,11 @@ final class Timeline: @unchecked Sendable {
     generation.wrappingAdd(1, ordering: .releasing)
   }
 
+  /// Moves the cursor forward in the same generation (IO thread only): separated audio past `frame` stays good.
+  func advance(to frame: Int) {
+    cursor.store(frame, ordering: .releasing)
+  }
+
   // MARK: Separation worker
 
   /// Publishes that separated audio below `frontier` is final for `generation`.

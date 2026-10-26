@@ -18,9 +18,12 @@ final class SeparationWorker: @unchecked Sendable {
 
   /// Called once, on the worker thread, when the first separator of this attach is ready.
   private let onFirstReady: () -> Void
+  /// Whether the player is playing; read on the worker thread before each slice.
+  private let isPlaying: () -> Bool
 
-  init(timeline: Timeline, onFirstReady: @escaping () -> Void) {
+  init(timeline: Timeline, isPlaying: @escaping () -> Bool, onFirstReady: @escaping () -> Void) {
     self.timeline = timeline
+    self.isPlaying = isPlaying
     self.onFirstReady = onFirstReady
     shape = WindowShape(rate: timeline.rate)
   }
@@ -81,14 +84,15 @@ final class SeparationWorker: @unchecked Sendable {
 
       let current = timeline.generation.load(ordering: .acquiring)
       let cursor = timeline.cursor.load(ordering: .acquiring)
-      if current != generation {
+      // A jump, or the cursor moved up past the separated audio with the oldest recording: restart at the cursor.
+      if current != generation || frontier < cursor {
         generation = current
         frontier = cursor
         first = true
         timeline.publishFrontier(frontier, generation: generation)
       }
       let head = timeline.head.load(ordering: .acquiring)
-      guard let job = nextJob(head: head, cursor: cursor, frontier: frontier, shape: shape) else {
+      guard let job = nextJob(head: head, cursor: cursor, frontier: frontier, playing: isPlaying(), shape: shape) else {
         usleep(20_000)
         continue
       }
