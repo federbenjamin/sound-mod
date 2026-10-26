@@ -102,7 +102,7 @@ Built later (2026-10-24), C for `next` only: with no later song in the buffer, `
 | B. One lock around the shared state | Familiar. | The IO thread can wait behind a 1 MB stem copy. |
 | C. Hand every change to a serial queue | No locks in user code. | A dispatch hop from a real-time thread is not allowed to block, and it allocates. |
 
-**Pick: A.** This Mac runs macOS 26. Memory: the recording ring holds 10 minutes (230 MB at 48 kHz stereo float), allocated on attach and freed on detach. If you're paused longer than that, the oldest audio is dropped and the cursor moves up to the oldest kept. The stems ring holds 20 s.
+**Pick: A.** This Mac runs macOS 26. Memory: the recording ring holds 6 minutes (138 MB at 48 kHz stereo float), allocated on attach and freed on detach. If you're paused longer than that, the oldest audio is dropped and the cursor moves up to the oldest kept. The stems ring holds 20 s. Playback starts, and restarts after a stall, only once 5 s of stems lie ahead of the cursor: started at the live edge with under a second separated ahead, a slow slice made it play and stall by turns.
 
 Fixed later (2026-10-26): that move ran every IO cycle as a jump, so past 10 minutes of pause the separator worked flat out on slices that were stale before they landed, and play after such a pause never got a slice and stayed silent until `next`. The move now keeps the generation, the worker restarts at the cursor when the cursor passes its frontier, and the worker separates nothing while paused. The separator caps MLX's buffer cache at 1 GB; unbounded it held about 5 GB beside a 0.22 GB model.
 
