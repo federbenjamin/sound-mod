@@ -55,11 +55,11 @@ final class MediaKeysTests: XCTestCase {
   }
 
   func testStartedPlayingTracksEveryTransitionWithoutChangingActionOrMark() {
-    var follower = PlayerFollower()
+    var follower = PlayerFollower(playerPlaying: false)
 
     let firstPlaying = follower.handle(event(.playing), now: 0, head: 100, behindLive: false)
     XCTAssertTrue(firstPlaying.startedPlaying)
-    XCTAssertEqual(firstPlaying.action, .none)
+    XCTAssertEqual(firstPlaying.action, .play)
     XCTAssertEqual(firstPlaying.mark, TrackMark(frame: 100, title: "TA", artist: "X"))
 
     let repeatedPlaying = follower.handle(event(.playing), now: 1, head: 200, behindLive: false)

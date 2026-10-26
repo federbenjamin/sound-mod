@@ -30,10 +30,15 @@ func isAtLive(cursor: Int, head: Int, rate: Int, liveLag: Int) -> Bool {
   cursor >= liveEdge(head: head, liveLag: liveLag) - rate
 }
 
-/// Whole seconds the cursor plays behind the live edge, rounded; 0 exactly when `isAtLive`.
-func secondsBehindLive(cursor: Int, head: Int, rate: Int, liveLag: Int) -> Int {
-  guard !isAtLive(cursor: cursor, head: head, rate: rate, liveLag: liveLag) else { return 0 }
-  return Int((Double(liveEdge(head: head, liveLag: liveLag) - cursor) / Double(rate)).rounded())
+/// The recording ahead of the cursor, in frames: what plays before the cursor reaches the head.
+func bufferedFrames(cursor: Int, head: Int) -> Int { max(0, head - cursor) }
+
+/// Whether the music player should be playing: always while stemmix plays; while stemmix is paused, until
+/// `target` frames are buffered ahead of the cursor, unless the pause was made in the player (`held`).
+func playerShouldPlay(playing: Bool, held: Bool, buffered: Int, target: Int) -> Bool {
+  if playing { return true }
+  if held { return false }
+  return buffered < target
 }
 
 /// What a command means at this moment. `marks` are the song starts the recording still holds, in order.
@@ -58,12 +63,15 @@ func resolve(_ command: TransportCommand, cursor: Int, head: Int, playing: Bool,
   }
 }
 
-/// Which of next, previous and live would act now: those `resolve` maps to anything but `.none`.
+/// Which of next and previous would act now: those `resolve` maps to anything but `.none`.
 func availableCommands(cursor: Int, head: Int, playing: Bool, marks: [TrackMark], rate: Int, liveLag: Int) -> Set<TransportCommand> {
-  Set([TransportCommand.next, .previous, .live].filter {
+  Set([TransportCommand.next, .previous].filter {
     resolve($0, cursor: cursor, head: head, playing: playing, marks: marks, rate: rate, liveLag: liveLag) != .none
   })
 }
+
+/// What stemmix asks of the music player itself, by Apple event.
+enum PlayerCommand: String { case play, pause, next }
 
 /// One state change of the music player, parsed from its distributed notification.
 struct PlayerEvent: Equatable {
@@ -106,49 +114,76 @@ private func number(_ value: Any?) -> Double? {
   }
 }
 
-/// Follows the music player: its pause and play become the player's, and each track change becomes a song mark.
-/// A track change well before the old song's end is a skip made in the music player; when the cursor is behind
-/// the live edge, the skip jumps the cursor to the new song. `awaitingSkip`: the daemon asked the player to skip,
-/// so the next track change jumps the cursor to the new song's start.
-struct PlayerFollower {
-  private var lastState: PlayerEvent.State?
-  private var trackID: String?
-  private var trackStartedAt: TimeInterval?
-  private var trackDuration: Double?
+/// An event stemmix expects from the music player after its own command: the state it asked for, or the track
+/// change a forwarded "next" asked for.
+enum PlayerEcho: Equatable { case playing, paused, trackChange }
 
-  /// The player's last reported state is paused or stopped.
-  var playerPaused: Bool { lastState == .paused || lastState == .stopped }
+/// Follows the music player: its pause and play become the player's, and each track change becomes a song mark.
+/// A change that answers one of stemmix's own commands (an expected echo) is followed silently. A track change
+/// well before the old song's end, by the song's play time, is a song picked in the music player: it plays, and
+/// when the cursor is behind the live edge it jumps to the new song. A track change an own "next" asked for jumps
+/// the cursor to the new song's start.
+struct PlayerFollower {
+  private var lastState: PlayerEvent.State
+  private var trackID: String?
+  private var trackDuration: Double?
+  /// The song's play position at the last event, and when that was: play time counts only while playing, so a
+  /// pause stemmix made in the player does not turn a later pick into a song's natural end.
+  private var positionAtLastEvent = 0.0
+  private var lastEventAt: TimeInterval?
+  private var echoes = PendingEchoes<PlayerEcho>()
+
+  init(playerPlaying: Bool) { lastState = playerPlaying ? .playing : .paused }
+
+  /// The player's last known state is paused or stopped.
+  var playerPaused: Bool { lastState != .playing }
 
   /// The player's play state to follow (`.play`, `.pause` or `.none`), a cursor jump, and a new song's mark.
   struct Reaction: Equatable {
     var action: TransportAction = .none
     var seek: Int?
     var mark: TrackMark?
-    /// The player changed into Playing with this event: from paused, stopped, or no event seen yet.
+    /// The player changed into Playing with this event, whoever asked for it.
     var startedPlaying = false
   }
 
-  mutating func handle(_ event: PlayerEvent, now: TimeInterval, head: Int, behindLive: Bool, awaitingSkip: Bool = false) -> Reaction {
+  mutating func expect(_ echo: PlayerEcho, until: TimeInterval) { echoes.expect(echo, until: until) }
+  func isExpecting(_ echo: PlayerEcho, at now: TimeInterval) -> Bool { echoes.isPending(echo, at: now) }
+  /// Stops waiting for one echo: its command was never taken.
+  mutating func withdraw(_ echo: PlayerEcho, at now: TimeInterval) { _ = echoes.claim(echo, at: now) }
+  /// The echoes that never came within their window.
+  mutating func expire(at now: TimeInterval) -> [PlayerEcho] { echoes.expire(at: now) }
+
+  mutating func handle(_ event: PlayerEvent, now: TimeInterval, head: Int, behindLive: Bool) -> Reaction {
     var reaction = Reaction()
-    if event.state != .playing, lastState == .playing || lastState == nil {
-      reaction.action = .pause
-    } else if event.state == .playing, lastState == .paused || lastState == .stopped {
-      reaction.action = .play
+    let wasPlaying = lastState == .playing
+    let isPlaying = event.state == .playing
+    let elapsed = positionAtLastEvent + (wasPlaying ? now - (lastEventAt ?? now) : 0)
+    if isPlaying != wasPlaying, !echoes.claim(isPlaying ? .playing : .paused, at: now) {
+      reaction.action = isPlaying ? .play : .pause
     }
-    reaction.startedPlaying = event.state == .playing && lastState != .playing
+    reaction.startedPlaying = isPlaying && !wasPlaying
     lastState = event.state
 
     if let id = event.trackID, id != trackID {
-      let skipped: Bool = {
-        guard trackID != nil, let started = trackStartedAt, let duration = trackDuration else { return false }
-        return now - started < duration - Config.skipBeforeEndSeconds
+      let picked: Bool = {
+        guard trackID != nil, let duration = trackDuration else { return false }
+        return elapsed < duration - Config.skipBeforeEndSeconds
       }()
       trackID = id
       trackDuration = event.durationSeconds
-      trackStartedAt = now - (event.positionSeconds ?? 0)
+      positionAtLastEvent = event.positionSeconds ?? 0
       reaction.mark = TrackMark(frame: head, title: event.title, artist: event.artist)
-      if awaitingSkip || (skipped && behindLive && event.state == .playing) { reaction.seek = head }
+      if echoes.claim(.trackChange, at: now) {
+        reaction.seek = head
+      } else if picked, isPlaying {
+        reaction.action = .play
+        if behindLive { reaction.seek = head }
+      }
+    } else {
+      positionAtLastEvent = event.positionSeconds ?? elapsed
     }
+    lastEventAt = now
     return reaction
   }
 }

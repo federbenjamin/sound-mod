@@ -7,7 +7,13 @@ final class ConfigTests: XCTestCase {
     let keys = Set(Config.playerBundlePrefixes.keys)
     XCTAssertEqual(Set(Config.playerNames.keys), keys)
     XCTAssertEqual(Set(playerNotifications.keys), keys)
+    XCTAssertEqual(Set(Config.playerEvents.keys), keys)
     XCTAssertTrue(keys.contains(Config.defaultPlayer))
+  }
+
+  /// A paused cursor that far behind would be moved up past the oldest recording, losing what was buffered.
+  func testTheBufferTargetFitsTheRecordingMinusItsGuard() {
+    XCTAssertLessThan(Config.bufferAheadSeconds, Config.recordingSeconds - Config.recordingGuardSeconds)
   }
 
   func testAnUnknownPlayerKeyResolvesToTheDefaultPlayer() {

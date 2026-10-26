@@ -7,6 +7,8 @@ import Synchronization
 final class SeparationWorker: @unchecked Sendable {
   private let timeline: Timeline
   private let shape: WindowShape
+  /// How far behind the head a paused cursor sits before the recording's overflow moves it up.
+  private let keptFrames: Int
   private let stopped = Atomic<Bool>(false)
   private let finished = DispatchSemaphore(value: 0)
   private var thread: Thread?
@@ -26,6 +28,7 @@ final class SeparationWorker: @unchecked Sendable {
     self.isPlaying = isPlaying
     self.onFirstReady = onFirstReady
     shape = WindowShape(rate: timeline.rate)
+    keptFrames = timeline.recordingCapacity - Int(Config.recordingGuardSeconds * Double(timeline.rate))
   }
 
   func start() {
@@ -92,7 +95,7 @@ final class SeparationWorker: @unchecked Sendable {
         timeline.publishFrontier(frontier, generation: generation)
       }
       let head = timeline.head.load(ordering: .acquiring)
-      guard let job = nextJob(head: head, cursor: cursor, frontier: frontier, playing: isPlaying(), shape: shape) else {
+      guard let job = nextJob(head: head, cursor: cursor, frontier: frontier, playing: isPlaying(), keptFrames: keptFrames, shape: shape) else {
         usleep(20_000)
         continue
       }

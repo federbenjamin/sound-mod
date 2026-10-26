@@ -191,18 +191,29 @@ final class Player: @unchecked Sendable {
       return
     }
     let p = data.assumingMemoryBound(to: Float.self)
-    if first.mNumberChannels >= 2 {
-      timeline.record(interleaved: p, frames: frames)
-    } else if inputs.count >= 2, let right = inputs[1].mData {
-      timeline.record(left: p, right: right.assumingMemoryBound(to: Float.self), frames: frames)
-    } else {
-      timeline.record(left: p, right: p, frames: frames)
-    }
+    let right = first.mNumberChannels < 2 && inputs.count >= 2 ? inputs[1].mData?.assumingMemoryBound(to: Float.self) : nil
     var sumSq: Float = 0
     let count = frames * Int(max(first.mNumberChannels, 1))
     for i in 0..<count { sumSq += p[i] * p[i] }
+    var silent = sumSq == 0
+    if silent, let right {
+      for i in 0..<frames where right[i] != 0 {
+        silent = false
+        break
+      }
+    }
     inputSumSq.wrappingAdd(UInt64(Double(sumSq) * 1_048_576), ordering: .relaxed)
     inputSamples.wrappingAdd(count, ordering: .relaxed)
+    // A tapped player that is paused hands over exact zeros. Recording them would fill the buffer ahead of the
+    // cursor with silence while stemmix holds the player paused, so the head moves only over sound.
+    guard !silent else { return }
+    if first.mNumberChannels >= 2 {
+      timeline.record(interleaved: p, frames: frames)
+    } else if let right {
+      timeline.record(left: p, right: right, frames: frames)
+    } else {
+      timeline.record(left: p, right: p, frames: frames)
+    }
   }
 
   /// Reads and clears the level meters: (input dBFS, output dBFS), nil where nothing was measured.

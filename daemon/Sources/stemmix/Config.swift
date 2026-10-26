@@ -8,13 +8,14 @@ enum Config {
   static let logFile = stateDir.appendingPathComponent("stemmix.log")
   static let separatorLogFile = stateDir.appendingPathComponent("separator.log")
   static let lockFile = stateDir.appendingPathComponent("daemon.lock")
+  // Present while stemmix is switched off from its menu; absent (the first run) is on.
+  static let offFile = stateDir.appendingPathComponent("off")
 
   static let pollInterval: TimeInterval = 0.25
   static let sessionStaleMs: Double = 6_000
   // A session counts as working until it has been not-working this long: agents idle a second or two between turns.
   static let workingHoldSeconds: Double = 5
   static let sessionFileMaxAgeMs: Double = 24 * 3_600_000
-  static let detachAfterIdle: TimeInterval = 60
   static let attachRetry: TimeInterval = 5
   static let levelInterval: TimeInterval = 10
   static let exitTeardownWait: TimeInterval = 5
@@ -69,15 +70,20 @@ enum Config {
   static let skipBeforeEndSeconds = 5.0
   // "Previous" within this far into a song goes to the song before it.
   static let previousRestartSeconds = 3.0
-  // "Next" with no later song recorded asks the player to skip; the cursor waits this long for its track change.
-  static let forwardedSkipTimeout: TimeInterval = 3
-  // How long the "next track" Apple event may wait for its reply; the first one waits on the Automation prompt.
+  // After stemmix's own play, pause or next to the player, its state or track change within this long is the
+  // answer, not the user's; a forwarded "next" holds the cursor at the head this long.
+  static let playerEchoWindow: TimeInterval = 3
+  // How long a player Apple event may wait for its reply; the first one waits on the Automation prompt.
   static let playerControlTimeout: TimeInterval = 30
-  // Each player's bundle ID and the Apple event for its AppleScript "next track" (read from its sdef).
-  static let playerNextTrack: [String: (bundleID: String, eventClass: String, eventID: String)] = [
-    "spotify": ("com.spotify.client", "spfy", "Next"),
-    "music": ("com.apple.Music", "hook", "Next"),
+  // Each player's bundle ID and the Apple events for its AppleScript "next track", "play" and "pause" (read from
+  // its sdef).
+  static let playerEvents: [String: (bundleID: String, eventClass: String, next: String, play: String, pause: String)] = [
+    "spotify": ("com.spotify.client", "spfy", "Next", "Play", "Paus"),
+    "music": ("com.apple.Music", "hook", "Next", "Play", "Paus"),
   ]
+  // While stemmix is paused the player keeps playing, muted, until this much is buffered ahead of the cursor. Below
+  // the recording minus its guard, or the cursor would be moved up past the oldest of it.
+  static let bufferAheadSeconds = 300.0
 
   static let controlNotification = Notification.Name("com.benjaminfeder.stemmix.control")
 

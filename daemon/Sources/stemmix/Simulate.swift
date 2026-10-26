@@ -8,17 +8,25 @@ struct SimulationScript: Decodable {
     let stems: Int?
     let muffleHz: Double?
     let command: String?
+    /// The user acting in the music player itself: "play", "pause" or "next" (with `songs`).
+    let player: String?
   }
 
   let rate: Int
   let speed: Double
   let seconds: Double
   let events: [Event]
-  /// Song starts in the recording, in seconds. With them, a simulated music player plays the recording as those
-  /// songs: it posts a track change at each start, and a forwarded "next" makes it jump to the next start
-  /// `skipDelay` seconds later (default 0.1). Without them the recording is one stream and "next" is never sent.
+  /// A simulated music player plays the recording: it reads on only while playing, feeds the tap silence while
+  /// paused, and posts a state event at each play state change. Stemmix's play, pause and next reach it
+  /// `skipDelay` seconds later (default 0.1). With `songs` (song starts, in seconds) it posts a track change at
+  /// each start and a next makes it jump to the next start; without them the recording is one stream and next is
+  /// never sent.
   let songs: [Double]?
   let skipDelay: Double?
+  /// Whether the music player plays at the start (default true).
+  let playerPlaying: Bool?
+  /// The buffer rule's target in seconds (default `Config.bufferAheadSeconds`), so a short run can reach it.
+  let bufferSeconds: Double?
 }
 
 /// `--simulate <input.f32> <output.f32> <script.json>`: plays a recording (interleaved stereo float32 at the
@@ -46,23 +54,42 @@ func runSimulate(_ arguments: [String]) -> Int32 {
   let rate = Double(script.rate)
   let songStarts = (script.songs ?? []).map { Int($0 * rate) }
   let skipDelay = Int((script.skipDelay ?? 0.1) * rate)
+  let inputFrames = input.count / Timeline.channels
   var frame = 0
   var readFrame = 0
+  var playerPlaying = script.playerPlaying ?? true
   var skipAt: Int?
-  var announced = -1
-  let playback = Playback(rate: script.rate) { done in
-    guard !songStarts.isEmpty else {
-      print("frame=\(frame) skip-player not sent: the script has no songs")
-      done(false)
-      return
+  var stateAt: (playing: Bool, frame: Int)?
+  var announcedSong = -1
+  var announcedPlaying: Bool?
+  func time() -> Double { Double(frame) / rate }
+  let playback = Playback(rate: script.rate, playerPlaying: playerPlaying, bufferAheadSeconds: script.bufferSeconds ?? Config.bufferAheadSeconds) { command, done in
+    print(String(format: "%.2fs frame=%d player-control command=%@", time(), frame, command.rawValue))
+    switch command {
+    case .next:
+      guard !songStarts.isEmpty else {
+        print("frame=\(frame) skip-player not sent: the script has no songs")
+        done(false)
+        return
+      }
+      skipAt = frame + skipDelay
+    case .play, .pause:
+      stateAt = (command == .play, frame + skipDelay)
     }
-    skipAt = frame + skipDelay
     done(true)
+  }
+  func nextSong() {
+    readFrame = songStarts.first { $0 > readFrame } ?? inputFrames
+    print(String(format: "%.2fs frame=%d player skipped to input=%d", time(), frame, readFrame))
+  }
+  func setPlayerPlaying(_ playing: Bool) {
+    guard playing != playerPlaying else { return }
+    playerPlaying = playing
+    print(String(format: "%.2fs frame=%d player %@ input=%d", time(), frame, playing ? "playing" : "paused", readFrame))
   }
   playback.start()
   let block = 512
   let totalFrames = Int(script.seconds * Double(script.rate))
-  let inputFrames = input.count / Timeline.channels
   var output = [Float](repeating: 0, count: totalFrames * Timeline.channels)
   var inBlock = [Float](repeating: 0, count: block * Timeline.channels)
   var outBlock = [Float](repeating: 0, count: block * Timeline.channels)
@@ -86,24 +113,38 @@ func runSimulate(_ arguments: [String]) -> Int32 {
         playback.handle(command, source: "simulate", now: t)
         print(String(format: "%.2fs frame=%d command=%@", t, frame, text))
       }
+      switch event.player {
+      case "play": setPlayerPlaying(true)
+      case "pause": setPlayerPlaying(false)
+      case "next" where !songStarts.isEmpty: nextSong()
+      default: break
+      }
     }
     if let at = skipAt, frame >= at {
       skipAt = nil
-      readFrame = songStarts.first { $0 > readFrame } ?? inputFrames
-      print(String(format: "%.2fs frame=%d player skipped to input=%d", t, frame, readFrame))
+      nextSong()
     }
-    if let index = songStarts.lastIndex(where: { $0 <= readFrame }), index != announced {
-      announced = index
-      let end = index + 1 < songStarts.count ? songStarts[index + 1] : inputFrames
-      playback.handle(PlayerEvent(
-        state: .playing, trackID: "song\(index)", title: "Song \(index)", artist: "simulate",
-        durationSeconds: Double(end - songStarts[index]) / rate, positionSeconds: Double(readFrame - songStarts[index]) / rate), now: t)
-      print(String(format: "%.2fs frame=%d player-event song%d input=%d", t, frame, index, readFrame))
+    if let state = stateAt, frame >= state.frame {
+      stateAt = nil
+      setPlayerPlaying(state.playing)
     }
-    playback.expireForwardedSkip(now: t)
+    let index = songStarts.lastIndex(where: { $0 <= readFrame })
+    if (index ?? -1) != announcedSong || playerPlaying != announcedPlaying {
+      announcedSong = index ?? -1
+      announcedPlaying = playerPlaying
+      let end = index.map { $0 + 1 < songStarts.count ? songStarts[$0 + 1] : inputFrames }
+      let reaction = playback.handle(PlayerEvent(
+        state: playerPlaying ? .playing : .paused, trackID: index.map { "song\($0)" }, title: index.map { "Song \($0)" } ?? "",
+        artist: "simulate", durationSeconds: index.map { Double(end! - songStarts[$0]) / rate },
+        positionSeconds: Double(readFrame - (index.map { songStarts[$0] } ?? 0)) / rate), now: t)
+      print(String(
+        format: "%.2fs frame=%d player-event song=%@ state=%@ input=%d action=%@ seek=%@", t, frame, index.map { String($0) } ?? "-",
+        playerPlaying ? "playing" : "paused", readFrame, "\(reaction.action)", reaction.seek.map { String($0) } ?? "-"))
+    }
+    playback.tick(now: t)
     for i in 0..<block * Timeline.channels {
       let index = readFrame * Timeline.channels + i
-      inBlock[i] = readFrame + i / Timeline.channels < inputFrames ? input[index] : 0
+      inBlock[i] = playerPlaying && readFrame + i / Timeline.channels < inputFrames ? input[index] : 0
     }
     inBlock.withUnsafeMutableBufferPointer { inPointer in
       outBlock.withUnsafeMutableBufferPointer { outPointer in
@@ -116,7 +157,7 @@ func runSimulate(_ arguments: [String]) -> Int32 {
     let count = min(block, totalFrames - frame) * Timeline.channels
     output.replaceSubrange(frame * Timeline.channels..<frame * Timeline.channels + count, with: outBlock[0..<count])
     frame += block
-    readFrame += block
+    if playerPlaying { readFrame += block }
     if t >= nextStatus {
       print(String(format: "%.2fs ", t) + playback.status().line)
       nextStatus += 5

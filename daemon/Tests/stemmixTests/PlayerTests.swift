@@ -6,6 +6,8 @@ final class PlayerTests: XCTestCase {
   /// Rate 1000: the transport fade is 10 frames, the stem gain ramp 1000, the recording guard 15000.
   private let preloaded = 5000
 
+  /// A block of sound for the tap: a paused player's silence is not recorded.
+  private func sound(_ frames: Int) -> [Float] { [Float](repeating: 0.5, count: frames * 2) }
   private func mix(_ frame: Int, _ ch: Int) -> Float { Float((frame * 7 + ch * 3) % 101) / 100 + 0.1 }
 
   /// A timeline with `preloaded` recorded frames and stems published up to the end of them (generation 0).
@@ -97,10 +99,10 @@ final class PlayerTests: XCTestCase {
     let tailOut: [Float] = Array(out[silentFrom..<out.count])
     XCTAssertTrue(tailOut.allSatisfy { $0 == 0 })
 
-    render(p, frames: 100)
-    render(p, frames: 100)
+    render(p, frames: 100, input: sound(100))
+    render(p, frames: 100, input: sound(100))
     XCTAssertEqual(t.cursor.load(ordering: .relaxed), after)
-    XCTAssertEqual(t.head.load(ordering: .relaxed), headBefore + 300)
+    XCTAssertEqual(t.head.load(ordering: .relaxed), headBefore + 200)
   }
 
   func testPlayResumesFromTheSameCursor() {
@@ -206,13 +208,25 @@ final class PlayerTests: XCTestCase {
     let (t, p) = makeRig(recordingSeconds: 20)  // capacity 20000, guard 15000
     p.audible.store(4, ordering: .relaxed)
     // One long cycle takes the head to 5000 + 25000 = 30000: oldest kept 10000, playable from 25000.
-    render(p, frames: 25_000)
+    render(p, frames: 25_000, input: sound(25_000))
     XCTAssertEqual(t.head.load(ordering: .relaxed), 30_000)
     XCTAssertEqual(t.cursor.load(ordering: .relaxed), 25_000)
     // Every later cycle moves it again; a new generation each time would make every slice in flight stale.
-    render(p, frames: 100)
+    render(p, frames: 100, input: sound(100))
     XCTAssertEqual(t.cursor.load(ordering: .relaxed), 25_100)
     XCTAssertEqual(t.generation.load(ordering: .relaxed), 0)
+  }
+
+  func testABlockOfExactSilenceIsNotRecordedButStillMetered() {
+    let (t, p) = makeRig()
+    let head = t.head.load(ordering: .relaxed)
+    render(p, frames: 100)
+    XCTAssertEqual(t.head.load(ordering: .relaxed), head)
+    XCTAssertEqual(p.takeLevels().inputSamples, 200)
+    var oneSample = [Float](repeating: 0, count: 200)
+    oneSample[151] = 0.001
+    render(p, frames: 100, input: oneSample)
+    XCTAssertEqual(t.head.load(ordering: .relaxed), head + 100)
   }
 
   func testRecordingWrapKeepsRoundTrippingThroughRender() {

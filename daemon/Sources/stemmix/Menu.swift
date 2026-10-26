@@ -1,17 +1,17 @@
 /// What the menu shows of one attach's playback, read once per tick.
 struct PlaybackSnapshot: Equatable {
   let playing: Bool
-  let playerPaused: Bool
   let song: TrackMark?
-  let secondsBehindLive: Int
+  /// Whole seconds of recording ahead of the cursor.
+  let bufferedSeconds: Int
   let available: Set<TransportCommand>
 }
 
-enum DetachReason: Equatable { case noSession, playerNotRunning, needsPermission, attaching }
+enum DetachReason: Equatable { case off, playerNotRunning, needsPermission, attaching }
 
 /// Why the daemon is detached, from the two halves of its attach decision and the last refused permission.
-func detachReason(sessionOpen: Bool, playerRunning: Bool, permission: CapturePermission?) -> DetachReason {
-  if !sessionOpen { return .noSession }
+func detachReason(on: Bool, playerRunning: Bool, permission: CapturePermission?) -> DetachReason {
+  if !on { return .off }
   if !playerRunning { return .playerNotRunning }
   if permission != nil { return .needsPermission }
   return .attaching
@@ -36,6 +36,7 @@ struct MenuSnapshot: Equatable {
 enum MenuIcon: Equatable { case detached, playing, paused }
 
 enum MenuAction: Equatable {
+  case toggleOnOff
   case transport(TransportCommand)
   case openLog, restart, quit
 }
@@ -67,15 +68,20 @@ struct MenuContent: Equatable {
 enum MenuLayout {
   static let infoLines = 5
   static let actionGroups: [[MenuAction]] = [
-    [.transport(.toggle), .transport(.next), .transport(.previous), .transport(.live)],
+    [.toggleOnOff],
+    [.transport(.toggle), .transport(.next), .transport(.previous)],
     [.openLog],
     [.restart, .quit],
   ]
 }
 
+/// The time buffered ahead, as m:ss.
+func bufferedLabel(_ seconds: Int) -> String { "\(seconds / 60):" + String(format: "%02d", seconds % 60) }
+
 /// One action's item; the transport items act only while attached (`playback` not nil).
-private func menuItem(_ action: MenuAction, playback: PlaybackSnapshot?) -> MenuItem {
+private func menuItem(_ action: MenuAction, playback: PlaybackSnapshot?, on: Bool) -> MenuItem {
   switch action {
+  case .toggleOnOff: return MenuItem(title: on ? "Turn Stemmix Off" : "Turn Stemmix On", isEnabled: true, action: action)
   case let .transport(command):
     let title: String
     switch command {
@@ -96,13 +102,14 @@ func menuContent(_ snapshot: MenuSnapshot) -> MenuContent {
   let player = snapshot.player
   let counts = snapshot.counts
   let sessions = "\(counts.working) of \(counts.live) \(counts.live == 1 ? "session" : "sessions") working"
-  func items(_ playback: PlaybackSnapshot?) -> [MenuItem] { MenuLayout.actionGroups.joined().map { menuItem($0, playback: playback) } }
+  let on = snapshot.attachment != .detached(.off)
+  func items(_ playback: PlaybackSnapshot?) -> [MenuItem] { MenuLayout.actionGroups.joined().map { menuItem($0, playback: playback, on: on) } }
 
   switch snapshot.attachment {
   case let .detached(reason):
     let state: String
     switch reason {
-    case .noSession: state = "No session open"
+    case .off: state = "Off"
     case .playerNotRunning: state = "\(player) is not running"
     case .needsPermission: state = "Needs System Audio Recording permission"
     case .attaching: state = "Attaching"
@@ -116,17 +123,12 @@ func menuContent(_ snapshot: MenuSnapshot) -> MenuContent {
     } else {
       song = "Unknown song"
     }
-    let behind = playback.secondsBehindLive
-    let position = behind == 0 ? "live" : "\(behind) s behind live"
+    let buffered = "\(bufferedLabel(playback.bufferedSeconds)) buffered"
     let state: String
     if snapshot.inputSamples == 0 {
       state = "No audio from \(player)"
-    } else if playback.playing {
-      state = "Playing, \(position)"
-    } else if playback.playerPaused {
-      state = "\(player) is paused"
     } else {
-      state = "Paused, \(position)"
+      state = "\(playback.playing ? "Playing" : "Paused"), \(buffered)"
     }
     var stems = "Stems: \(stemNames(audible: snapshot.audible))"
     if let cutoff = snapshot.cutoffHz { stems += ", muffled at \(cutoffLabel(cutoff))" }

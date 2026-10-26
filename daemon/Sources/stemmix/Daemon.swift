@@ -16,7 +16,6 @@ final class Daemon {
   private var lastCounts: Counts?
   private var lastSessions: [String: Bool] = [:]
   private var workingEase = WorkingEase()
-  private var lastLiveAt = Date.distantPast
   private var nextAttachAt = Date.distantPast
   private var nextLevelAt = Date.distantPast
   private var nextPruneAt = Date.distantPast
@@ -76,6 +75,19 @@ final class Daemon {
 
   private func perform(_ action: MenuAction) {
     switch action {
+    case .toggleOnOff:
+      let on = !isOn
+      do {
+        if on {
+          try FileManager.default.removeItem(at: Config.offFile)
+        } else {
+          try FileManager.default.createDirectory(at: Config.stateDir, withIntermediateDirectories: true)
+          try Data().write(to: Config.offFile)
+        }
+        Log.line("switch on=\(on) source=menu")
+      } catch {
+        Log.line("switch on=\(on) source=menu failed error=\(error)")
+      }
     case let .transport(command): handle(command, source: "menu")
     case .openLog: NSWorkspace.shared.open(Config.logFile)
     case .restart:
@@ -124,7 +136,6 @@ final class Daemon {
     let counts = workingEase.summarize(
       sessions: sessions, nowMs: now.timeIntervalSince1970 * 1000, staleMs: Config.sessionStaleMs, holdSeconds: Config.workingHoldSeconds)
     logSessionChanges(sessions)
-    if counts.live > 0 { lastLiveAt = now }
     if now >= nextPruneAt {
       nextPruneAt = now.addingTimeInterval(60)
       for id in expiredSessions(sessions, nowMs: now.timeIntervalSince1970 * 1000, maxAgeMs: Config.sessionFileMaxAgeMs) {
@@ -137,14 +148,14 @@ final class Daemon {
 
     let targets = playerProcessObjects(bundlePrefix: Config.playerBundlePrefixes[player]!)
     let output = OutputDevice.current()
-    let sessionOpen = now.timeIntervalSince(lastLiveAt) < Config.detachAfterIdle
+    let on = isOn
     let playerRunning = !targets.isEmpty
-    let wantAttached = sessionOpen && playerRunning
+    let wantAttached = on && playerRunning
     let audible = audibleStems(mode: config.mode, working: counts.working, tracks: config.tracks)
     let cutoff = mufflingCutoffHz(config: config, working: counts.working)
 
     if let current = tap, !wantAttached || current.targets != targets || current.output != output {
-      detach(reason: !wantAttached ? "idle" : (current.targets != targets ? "player-changed" : "output-changed"))
+      detach(reason: !on ? "off" : !playerRunning ? "player-quit" : (current.targets != targets ? "player-changed" : "output-changed"))
     }
     if tap == nil, wantAttached, now >= nextAttachAt {
       attach(targets: targets, output: output, player: player)
@@ -155,7 +166,7 @@ final class Daemon {
     }
     let menu = MenuSnapshot(
       attachment: playback.map { .attached($0.snapshot()) }
-        ?? .detached(detachReason(sessionOpen: sessionOpen, playerRunning: playerRunning, permission: lastPermission)),
+        ?? .detached(detachReason(on: on, playerRunning: playerRunning, permission: lastPermission)),
       counts: counts,
       player: Config.playerNames[player]!,
       audible: audible,
@@ -169,7 +180,7 @@ final class Daemon {
   }
 
   private func tickAttached(_ playback: Playback, now: Date, config: ConfigFile, counts: Counts, targets: [AudioObjectID], audible: Int, cutoff: Double?) {
-    playback.expireForwardedSkip(now: now.timeIntervalSince1970)
+    playback.tick(now: now.timeIntervalSince1970)
     if now >= nextLevelAt {
       let status = playback.status()
       Log.line(status.line)
@@ -210,8 +221,10 @@ final class Daemon {
     var created: (ProcessTap, Playback)?
     do {
       let tap = try ProcessTap(targets: targets, output: output)
-      let playback = Playback(rate: Int(tap.tapFormat.mSampleRate)) { [weak self] done in
-        self?.playerControl.skipToNextTrack(player: player, done: done)
+      let playback = Playback(
+        rate: Int(tap.tapFormat.mSampleRate), playerPlaying: isOutputting(targets), bufferAheadSeconds: Config.bufferAheadSeconds
+      ) { [weak self] command, done in
+        self?.playerControl.send(command, player: player, done: done)
       }
       created = (tap, playback)
       playback.start()
@@ -259,6 +272,9 @@ final class Daemon {
       }
     }
   }
+
+  /// Switched on from the menu: no off file. On, stemmix taps the player whenever it runs.
+  private var isOn: Bool { !FileManager.default.fileExists(atPath: Config.offFile.path) }
 
   /// One daemon per user: a second copy (a Finder double-click on the app) would tap the player a second time.
   /// The lock is held for the process's life and released by the kernel when it exits.
