@@ -10,6 +10,7 @@ final class Daemon {
   private var tap: ProcessTap?
   private var playback: Playback?
   private var nowPlaying: NowPlaying?
+  private let playerControl = PlayerControl()
   private var lastAudible: Int?
   private var lastCutoff: Double??
   private var lastCounts: Counts?
@@ -69,7 +70,7 @@ final class Daemon {
       Log.line("transport source=\(source) command=\(command.rawValue) ignored: not attached")
       return
     }
-    playback.handle(command, source: source)
+    playback.handle(command, source: source, now: Date().timeIntervalSince1970)
   }
 
   private func perform(_ action: MenuAction) {
@@ -166,6 +167,7 @@ final class Daemon {
   }
 
   private func tickAttached(_ playback: Playback, now: Date, config: ConfigFile, counts: Counts, targets: [AudioObjectID], audible: Int, cutoff: Double?) {
+    playback.expireForwardedSkip(now: now.timeIntervalSince1970)
     if now >= nextLevelAt {
       let status = playback.status()
       Log.line(status.line)
@@ -206,7 +208,9 @@ final class Daemon {
     var created: (ProcessTap, Playback)?
     do {
       let tap = try ProcessTap(targets: targets, output: output)
-      let playback = Playback(rate: Int(tap.tapFormat.mSampleRate))
+      let playback = Playback(rate: Int(tap.tapFormat.mSampleRate)) { [weak self] done in
+        self?.playerControl.skipToNextTrack(player: player, done: done)
+      }
       created = (tap, playback)
       playback.start()
       try tap.start { input, output, frames in playback.player.render(input, output, frames: frames) }

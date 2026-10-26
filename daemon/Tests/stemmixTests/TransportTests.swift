@@ -27,13 +27,14 @@ final class TransportTests: XCTestCase {
     XCTAssertEqual(act(.next, cursor: 9_500, marks: marks), .seek(20_000))
   }
 
-  func testNextWithoutAMarkGoesToTheLiveEdgeAndIgnoresMarksPastIt() {
-    XCTAssertEqual(act(.next, cursor: 50_000, marks: [mark(10_000)]), .seek(99_500))
-    XCTAssertEqual(act(.next, cursor: 50_000, marks: [mark(99_800)]), .seek(99_500))
+  func testNextWithoutAMarkAheadSkipsThePlayerAndCountsMarksPastTheLiveEdgeAsAhead() {
+    XCTAssertEqual(act(.next, cursor: 50_000, marks: [mark(10_000)]), .skipPlayer)
+    // A song that started in the last moments sits between the live edge (99_500) and the head: still ahead.
+    XCTAssertEqual(act(.next, cursor: 50_000, marks: [mark(99_800)]), .seek(99_800))
   }
 
-  func testNextAndLiveDoNothingWhenAlreadyLive() {
-    XCTAssertEqual(act(.next, cursor: 99_000), .none)
+  func testNextSkipsThePlayerWhenAlreadyLiveAndLiveDoesNothing() {
+    XCTAssertEqual(act(.next, cursor: 99_000), .skipPlayer)
     XCTAssertEqual(act(.live, cursor: 99_500), .none)
     XCTAssertEqual(act(.live, cursor: 50_000), .seek(99_500))
   }
@@ -160,7 +161,8 @@ final class TransportTests: XCTestCase {
     var f = PlayerFollower()
     _ = f.handle(event(.playing, track: "A", duration: 100), now: 0, head: 0, behindLive: true)
     let r = f.handle(event(.playing, track: "B"), now: 30, head: 30_000, behindLive: true)
-    XCTAssertEqual(r.action, .seek(30_000))
+    XCTAssertEqual(r.seek, 30_000)
+    XCTAssertEqual(r.action, .none)
     XCTAssertEqual(r.mark?.frame, 30_000)
   }
 
@@ -170,6 +172,39 @@ final class TransportTests: XCTestCase {
     let r = f.handle(event(.playing, track: "B"), now: 30, head: 30_000, behindLive: false)
     XCTAssertEqual(r.action, .none)
     XCTAssertNotNil(r.mark)
+  }
+
+  func testAwaitingSkipSeeksToTheHeadOnANewTrackEvenWhileLive() {
+    var f = PlayerFollower()
+    _ = f.handle(event(.playing, track: "A", duration: 100), now: 0, head: 0, behindLive: false)
+    let r = f.handle(event(.playing, track: "B"), now: 30, head: 30_000, behindLive: false, awaitingSkip: true)
+    XCTAssertEqual(r.seek, 30_000)
+    XCTAssertEqual(r.mark, TrackMark(frame: 30_000, title: "TB", artist: "X"))
+  }
+
+  func testAwaitingSkipSeeksOnANaturalSongEnd() {
+    var f = PlayerFollower()
+    _ = f.handle(event(.playing, track: "A", duration: 100), now: 0, head: 0, behindLive: true)
+    let r = f.handle(event(.playing, track: "B"), now: 98, head: 98_000, behindLive: true, awaitingSkip: true)
+    XCTAssertEqual(r.seek, 98_000)
+    XCTAssertEqual(r.mark?.frame, 98_000)
+  }
+
+  func testAwaitingSkipDoesNotSeekOnARepeatedEventForTheSameTrack() {
+    var f = PlayerFollower()
+    _ = f.handle(event(.playing), now: 0, head: 0, behindLive: false)
+    let r = f.handle(event(.playing), now: 5, head: 5_000, behindLive: false, awaitingSkip: true)
+    XCTAssertEqual(r.action, .none)
+    XCTAssertNil(r.seek)
+    XCTAssertNil(r.mark)
+  }
+
+  func testAwaitingSkipFromPausedKeepsThePlayStateAlongsideTheSeek() {
+    var f = PlayerFollower()
+    _ = f.handle(event(.paused, track: "A"), now: 0, head: 0, behindLive: false)
+    let r = f.handle(event(.playing, track: "B"), now: 30, head: 30_000, behindLive: false, awaitingSkip: true)
+    XCTAssertEqual(r.action, .play)
+    XCTAssertEqual(r.seek, 30_000)
   }
 
   func testRepeatedEventsForTheSameTrackAddNoMark() {

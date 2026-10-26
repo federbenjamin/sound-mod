@@ -133,6 +133,37 @@ final class PlayerTests: XCTestCase {
     XCTAssertEqual(t.cursor.load(ordering: .relaxed), 600)
   }
 
+  // Both sent before one IO cycle (a forwarded skip yields a play state and a seek together): neither may be lost.
+  func testPauseThenSeekInOneCycleBothApply() {
+    let (t, p) = makeRig()
+    p.send(.pause)
+    p.send(.seek(500))
+    render(p, frames: 100)
+    XCTAssertEqual(t.cursor.load(ordering: .relaxed), 500)
+    XCTAssertFalse(p.playing.load(ordering: .relaxed))
+  }
+
+  func testSeekThenPlayInOneCycleBothApply() {
+    let (t, p) = makeRig()
+    p.send(.pause)
+    render(p, frames: 100)
+    p.send(.seek(500))
+    p.send(.play)
+    t.publishFrontier(2000, generation: t.generation.load(ordering: .relaxed) + 1)
+    render(p, frames: 100)
+    XCTAssertTrue(p.playing.load(ordering: .relaxed))
+    XCTAssertEqual(t.generation.load(ordering: .relaxed), 1)
+    XCTAssertGreaterThanOrEqual(t.cursor.load(ordering: .relaxed), 500)
+  }
+
+  func testTwoSeeksInOneCycleTheLaterWins() {
+    let (t, p) = makeRig()
+    p.send(.seek(500))
+    p.send(.seek(1200))
+    render(p, frames: 100)
+    XCTAssertEqual(t.cursor.load(ordering: .relaxed), 1200)
+  }
+
   func testSeekPastTheHeadClampsToTheHead() {
     let (t, p) = makeRig()
     p.send(.seek(10_000_000))

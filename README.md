@@ -27,10 +27,12 @@ Then install one session source; each carries the same settings: `tracks`, `play
 
 The first time a session works while music plays, macOS needs Stemmix allowed under System Settings > Privacy & Security > Screen & System Audio Recording > **System Audio Recording Only**: add `~/Applications/Stemmix.app` there with the + button. The daemon never taps before it is allowed, so no prompt appears on its own, and nothing else can raise one for it (not SSH, not a terminal-launched binary: TCC attributes those to the terminal).
 
+The first time you press next with no later song buffered, macOS asks whether Stemmix may control Spotify (or Music). Without it, next there only drops the sound for a moment and the song plays on; you can change it later under System Settings > Privacy & Security > Automation.
+
 ## Features
 
 - **One more instrument for each working session.** The song you already have playing comes through as drums, bass, other and vocals, and the count of working sessions decides how many of them you hear.
-- **Pause that lands at once.** Pause stops the sound immediately while the music keeps being recorded, so play resumes where you paused. Next and previous move between the songs in the buffer.
+- **Pause that lands at once.** Pause stops the sound immediately while the music keeps being recorded, so play resumes where you paused. Next and previous move between the songs in the buffer; next with no later song buffered skips the song in Spotify, then plays the new one from its start once it has buffered a few seconds.
 - **Media keys, Control Center and headphone buttons.** While attached, the daemon is the system's Now Playing app, and when Spotify starts playing it pulses its play state to take the keys back. Pausing or playing in Spotify itself does the same to the daemon. Known limits below lists what is still unchecked.
 - **A menu bar icon.** It shows whether the daemon is detached (dimmed), playing or paused; its menu names the song, how far behind live it plays or why it is not attached, the working sessions, the stems you hear, and who holds the media keys. Play/Pause, Next, Previous and Back to live are there too, with Open log, Restart Stemmix and Quit Stemmix.
 - **Two session sources.** A Claude Code plugin counts Claude Code sessions in any terminal; a herdr plugin counts every top-level agent pane herdr shows as working, on this Mac and on the machines saved in herdr.
@@ -39,7 +41,7 @@ The first time a session works while music plays, macOS needs Stemmix allowed un
 
 ## Usage
 
-Play something in Spotify (or Music) and open a session; the daemon attaches while a session is open and the player is running, and lets go a minute after the last one closes. While attached, the daemon is the system's Now Playing app, so the keyboard's media keys, Control Center and headphone buttons reach it, and when Spotify starts playing the daemon takes them back (whether they do so while Spotify plays is still unchecked; see Known limits): play/pause, next (the next song already in the buffer, else back to live), previous (the start of this song, or the one before within its first 3 s). Pausing or playing in Spotify itself does the same to the daemon at once. The menu bar icon is a dimmed waveform while detached, a waveform while playing and a pause symbol while paused. Its menu has the same commands, greyed when they would do nothing, plus Open log, Restart Stemmix (the agent starts again at once) and Quit Stemmix, which stops the agent until the next login or `./install.sh`.
+Play something in Spotify (or Music) and open a session; the daemon attaches while a session is open and the player is running, and lets go a minute after the last one closes. While attached, the daemon is the system's Now Playing app, so the keyboard's media keys, Control Center and headphone buttons reach it, and when Spotify starts playing the daemon takes them back (whether they do so while Spotify plays is still unchecked; see Known limits): play/pause, next (the next song already in the buffer, else the player skips to its next song, which plays from its start after about 3 s of silence while it buffers), previous (the start of this song, or the one before within its first 3 s). Pausing or playing in Spotify itself does the same to the daemon at once. The menu bar icon is a dimmed waveform while detached, a waveform while playing and a pause symbol while paused. Its menu has the same commands, greyed when they would do nothing, plus Open log, Restart Stemmix (the agent starts again at once) and Quit Stemmix, which stops the agent until the next login or `./install.sh`.
 
 From a terminal or a hotkey tool:
 
@@ -53,7 +55,7 @@ From a terminal or a hotkey tool:
 tail -f ~/.local/state/stemmix/stemmix.log
 ```
 
-One line per event: `start`, `attach`, `detach reason=…`, `count working=… mode=… stems=… muffle=…`, `transport source=media-key|control|menu command=… action=…`, `now-playing claimed|retaken|held|lost|released` (the media keys), `player-event …` (the player's own play state and track changes), `separator ready|start-failed|request-failed`, and every 10 s a `level` line: input and output level, `state`, `behind` (how far the cursor plays behind the recording), `separated-ahead`, `waited` (silence while stems were not ready), and the separator's median time per window. The separator's own output: `separator.log` beside it. The herdr plugin logs to `herdr-bridge.log` beside it: one line per change in the working count.
+One line per event: `start`, `attach`, `detach reason=…`, `count working=… mode=… stems=… muffle=…`, `transport source=media-key|control|menu command=… action=…`, `transport forward=next player=… result=…` (a next passed on to the player: `ok`, `denied`, `not-running`, `busy`, `unsupported`, `timeout-waiting-for-reply` or `error=<code>`; `result=timeout` when no track change followed within 3 s), `now-playing claimed|retaken|held|lost|released` (the media keys), `player-event …` (the player's own play state and track changes), `separator ready|start-failed|request-failed`, and every 10 s a `level` line: input and output level, `state`, `behind` (how far the cursor plays behind the recording), `separated-ahead`, `waited` (silence while stems were not ready), and the separator's median time per window. The separator's own output: `separator.log` beside it. The herdr plugin logs to `herdr-bridge.log` beside it: one line per change in the working count.
 
 ## Configuration
 
@@ -83,7 +85,6 @@ The daemon and the session sources meet in `~/.local/state/stemmix/`; the daemon
 
 ### Known limits
 
-- "Next" at the live edge cannot skip the song in Spotify: that needs the Automation permission, not built.
 - Whether the media keys reach the daemon while Spotify plays has not been checked by hand yet: the pulse that takes them back was proved with a probe app against mediaremoted, not with the installed daemon and Spotify. If they do not, the keys go to Spotify, and following Spotify's own pause still stops the sound at once.
 - When another app (a browser video) takes the media keys, the daemon takes them back at most once every 30 s, so a second take inside that time leaves them with that app until stemmix or Spotify next starts playing. The menu's Media keys line is the daemon's belief: macOS does not say who holds them. A play key while Spotify itself is paused plays only what stemmix has buffered.
 - The music keeps playing silently at zero working sessions; it is not paused.
@@ -103,7 +104,7 @@ UV_PROJECT_ENVIRONMENT=~/.local/share/stemmix/venv uv run --project separator py
 /usr/bin/python3 -m unittest discover -s herdr-plugin
 ```
 
-`stemmix --simulate <recording.f32> <out.f32> <script.json>` runs the real timeline, separator and render code on a recording with scripted stem counts and commands, without Core Audio (set `STEMMIX_SEPARATOR` to `separator/stemmix_separator.py`).
+`stemmix --simulate <recording.f32> <out.f32> <script.json>` runs the real timeline, separator and render code on a recording with scripted stem counts and commands, without Core Audio (set `STEMMIX_SEPARATOR` to `separator/stemmix_separator.py`). With `"songs": [<start seconds>…]` in the script, a simulated music player plays the recording as those songs and carries out a forwarded next.
 
 ## License
 
