@@ -63,7 +63,7 @@ enum Config {
   // Separated audio ahead of the cursor before playback starts, and again after a stall.
   static let prebufferSeconds = 5.0
 
-  static let stemRampSeconds = 0.4
+  static let stemRampSeconds = 1.0
   static let transportFadeSeconds = 0.01
   // A track change this far before the song's end is a skip, not the song finishing.
   static let skipBeforeEndSeconds = 5.0
