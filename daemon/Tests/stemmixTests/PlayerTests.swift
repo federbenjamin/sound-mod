@@ -47,6 +47,18 @@ final class PlayerTests: XCTestCase {
     XCTAssertEqual(t.cursor.load(ordering: .relaxed), 2000)
   }
 
+  func testOutputPastFullScaleIsCountedAsClipped() {
+    let (t, p) = makeRig()
+    p.audible.store(4, ordering: .relaxed)
+    _ = play(p, t, blocks: 15)
+    _ = p.clippedSamples.exchange(0, ordering: .relaxed)
+    let start = t.cursor.load(ordering: .relaxed)
+    render(p, frames: 100)
+    let expected = (start..<start + 100).reduce(0) { n, f in n + (mix(f, 0) > 1 ? 1 : 0) + (mix(f, 1) > 1 ? 1 : 0) }
+    XCTAssertGreaterThan(expected, 0)
+    XCTAssertEqual(p.clippedSamples.load(ordering: .relaxed), expected)
+  }
+
   func testSomeStemsAudibleIsQuieterThanTheRecording() {
     let (t, p) = makeRig()
     p.audible.store(1, ordering: .relaxed)  // drums only: 0.2 of the mix

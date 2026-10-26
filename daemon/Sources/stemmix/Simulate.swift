@@ -27,6 +27,10 @@ struct SimulationScript: Decodable {
   let playerPlaying: Bool?
   /// The buffer rule's target in seconds (default `Config.bufferAheadSeconds`), so a short run can reach it.
   let bufferSeconds: Double?
+  /// With it, also writes `<stemsOut>.pos.i32` (the recording frame each output frame played, -1 when the cursor did
+  /// not advance one block) and `<stemsOut>.stems.f32` (drums, bass, vocals as separated at that frame, each
+  /// interleaved stereo, frame after frame): the quality check compares them with a whole-song separation.
+  let stemsOut: String?
 }
 
 /// `--simulate <input.f32> <output.f32> <script.json>`: plays a recording (interleaved stereo float32 at the
@@ -93,6 +97,9 @@ func runSimulate(_ arguments: [String]) -> Int32 {
   var output = [Float](repeating: 0, count: totalFrames * Timeline.channels)
   var inBlock = [Float](repeating: 0, count: block * Timeline.channels)
   var outBlock = [Float](repeating: 0, count: block * Timeline.channels)
+  let separatedCount = Stem.separated.count
+  var positions = [Int32](repeating: -1, count: script.stemsOut == nil ? 0 : totalFrames)
+  var stemFrames = [Float](repeating: 0, count: script.stemsOut == nil ? 0 : totalFrames * separatedCount * Timeline.channels)
   var pending = script.events.sorted { $0.at < $1.at }[...]
   var nextStatus = 0.0
   let began = Date()
@@ -146,6 +153,7 @@ func runSimulate(_ arguments: [String]) -> Int32 {
       let index = readFrame * Timeline.channels + i
       inBlock[i] = playerPlaying && readFrame + i / Timeline.channels < inputFrames ? input[index] : 0
     }
+    let cursorBefore = playback.timeline.cursor.load(ordering: .acquiring)
     inBlock.withUnsafeMutableBufferPointer { inPointer in
       outBlock.withUnsafeMutableBufferPointer { outPointer in
         let bytes = UInt32(block * Timeline.channels * MemoryLayout<Float>.size)
@@ -155,6 +163,17 @@ func runSimulate(_ arguments: [String]) -> Int32 {
       }
     }
     let count = min(block, totalFrames - frame) * Timeline.channels
+    if script.stemsOut != nil, playback.timeline.cursor.load(ordering: .acquiring) - cursorBefore == block {
+      for i in 0..<min(block, totalFrames - frame) {
+        positions[frame + i] = Int32(cursorBefore + i)
+        for stem in 0..<separatedCount {
+          for channel in 0..<Timeline.channels {
+            stemFrames[((frame + i) * separatedCount + stem) * Timeline.channels + channel] =
+              playback.timeline.separated(stem, cursorBefore + i, channel)
+          }
+        }
+      }
+    }
     output.replaceSubrange(frame * Timeline.channels..<frame * Timeline.channels + count, with: outBlock[0..<count])
     frame += block
     if playerPlaying { readFrame += block }
@@ -172,6 +191,15 @@ func runSimulate(_ arguments: [String]) -> Int32 {
   } catch {
     print("simulate: \(error)")
     return 73
+  }
+  if let prefix = script.stemsOut {
+    do {
+      try positions.withUnsafeBytes { try Data($0).write(to: URL(fileURLWithPath: prefix + ".pos.i32")) }
+      try stemFrames.withUnsafeBytes { try Data($0).write(to: URL(fileURLWithPath: prefix + ".stems.f32")) }
+    } catch {
+      print("simulate: \(error)")
+      return 73
+    }
   }
   print("simulate: wrote \(totalFrames) frames")
   return 0

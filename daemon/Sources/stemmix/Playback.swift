@@ -198,7 +198,7 @@ final class Playback {
     let ahead = timeline.frontier(for: generation).map { seconds($0 - cursor) } ?? "none"
     let waiting = player.waitingFrames.exchange(0, ordering: .relaxed)
     func db(_ value: Double?) -> String { value.map { String(format: "%.1fdBFS", $0) } ?? "none" }
-    let line = "level in=\(db(levels.input)) out=\(db(levels.output)) samples=\(levels.inputSamples) state=\(playing ? "playing" : "paused") buffered=\(seconds(bufferedFrames(cursor: cursor, head: head))) separated-ahead=\(ahead) waited=\(seconds(waiting)) separator-ms=\(stats.medianMs.map { String(format: "%.0f", $0) } ?? "none") slices=\(stats.count) failures=\(stats.failures)"
+    let line = "level in=\(db(levels.input)) out=\(db(levels.output)) samples=\(levels.inputSamples) state=\(playing ? "playing" : "paused") buffered=\(seconds(bufferedFrames(cursor: cursor, head: head))) separated-ahead=\(ahead) waited=\(seconds(waiting)) separator-ms=\(stats.medianMs.map { String(format: "%.0f", $0) } ?? "none") slices=\(stats.count) failures=\(stats.failures) clipped=\(player.clippedSamples.exchange(0, ordering: .relaxed))"
     return (line, levels.inputSamples)
   }
 
