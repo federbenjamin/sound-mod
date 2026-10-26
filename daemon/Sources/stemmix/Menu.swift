@@ -153,7 +153,7 @@ func mufflingLabel(_ level: Double) -> String {
 
 /// What you hear, in words: "Hearing: drums, bass", "Hearing: everything, muffled at 651 Hz".
 func hearingLine(audible: Int, cutoffHz: Double?) -> String {
-  let names = Stem.allCases.prefix(max(0, audible)).map { $0 == .other ? "other instruments" : $0.name }
+  let names = audibleStemList(audible).map { $0 == .other ? "other instruments" : $0.name }
   var line = "Hearing: " + (names.isEmpty ? "nothing" : names.count == Stem.allCases.count ? "everything" : names.joined(separator: ", "))
   if let cutoffHz, !names.isEmpty { line += ", muffled at \(hzText(cutoffHz))" }
   return line

@@ -77,7 +77,7 @@ final class StatusMenu: NSObject {
       button.imagePosition = content.iconText == nil ? .imageOnly : .imageLeading
       button.attributedTitle = NSAttributedString(
         string: content.iconText ?? "",
-        attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)])
+        attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .regular)])
     }
     for (line, text) in zip(info, content.lines) {
       line.title = text ?? ""
