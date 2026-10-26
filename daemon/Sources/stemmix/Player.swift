@@ -89,10 +89,12 @@ final class Player: @unchecked Sendable {
       fade = 0
       lowPass.reset()
     }
-    // A pause longer than the recording holds: the oldest audio is dropped, so the cursor moves up with it.
+    // A pause longer than the recording holds: the oldest audio is dropped, so the cursor moves up with it. This
+    // runs every cycle while the cursor sits there, so it keeps the generation: a jump would make every slice in
+    // flight stale and the worker would never finish one.
     if cursor < oldestPlayable {
       cursor = oldestPlayable
-      timeline.jump(to: cursor)
+      timeline.advance(to: cursor)
       fade = 0
     }
     playing.store(wantPlaying, ordering: .relaxed)

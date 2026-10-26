@@ -14,6 +14,9 @@ import soxr
 
 MODEL = "htdemucs"
 MODEL_RATE = 44100
+# MLX keeps freed GPU buffers for reuse with no limit: about 5 GB for HTDemucs, against 0.22 GB of live model.
+# 1 GB measured 173 ms a window against 152 ms unlimited (2026-10-26, M5), inside the daemon's 250 ms margin.
+CACHE_LIMIT_BYTES = 1 << 30
 
 
 def read_exact(stream, n):
@@ -55,7 +58,10 @@ def fit(x, frames):
 
 class Separator:
     def __init__(self):
+        import mlx.core as mx
         from demucs_mlx import Separator as Demucs
+
+        mx.set_cache_limit(CACHE_LIMIT_BYTES)
 
         self.model = Demucs(MODEL, shifts=0, overlap=0.25, progress=False)
         assert self.model.samplerate == MODEL_RATE, self.model.samplerate

@@ -179,14 +179,17 @@ final class PlayerTests: XCTestCase {
     XCTAssertEqual(t.cursor.load(ordering: .relaxed), 0)
   }
 
-  func testCursorOlderThanTheKeptRecordingPlusGuardIsMovedUp() {
+  func testCursorOlderThanTheKeptRecordingPlusGuardIsMovedUpInTheSameGeneration() {
     let (t, p) = makeRig(recordingSeconds: 20)  // capacity 20000, guard 15000
     p.audible.store(4, ordering: .relaxed)
     // One long cycle takes the head to 5000 + 25000 = 30000: oldest kept 10000, playable from 25000.
     render(p, frames: 25_000)
     XCTAssertEqual(t.head.load(ordering: .relaxed), 30_000)
     XCTAssertEqual(t.cursor.load(ordering: .relaxed), 25_000)
-    XCTAssertEqual(t.generation.load(ordering: .relaxed), 1)
+    // Every later cycle moves it again; a new generation each time would make every slice in flight stale.
+    render(p, frames: 100)
+    XCTAssertEqual(t.cursor.load(ordering: .relaxed), 25_100)
+    XCTAssertEqual(t.generation.load(ordering: .relaxed), 0)
   }
 
   func testRecordingWrapKeepsRoundTrippingThroughRender() {
