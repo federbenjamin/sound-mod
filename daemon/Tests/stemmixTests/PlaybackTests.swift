@@ -196,6 +196,27 @@ final class PlaybackTests: XCTestCase {
     XCTAssertTrue(post(playback, .stopped, now: 101).ended == false, "a repeat of the same state is no change")
   }
 
+  func testAPlayerStoppingAtTheQueueEndHoldsWhileTheBufferPlaysOutAndAPlayStartsItAgain() {
+    let playback = makePlayback()
+    post(playback, .playing, now: 0, position: 0)
+    record(playback, seconds: 5)
+    // Music posts Stopped when its queue runs out, wherever the song stood.
+    let end = post(playback, .stopped, now: 30, position: nil)
+    XCTAssertEqual(end.action, .none)
+    XCTAssertTrue(end.ended)
+    XCTAssertTrue(playback.intendsPlaying, "the buffer plays out")
+    XCTAssertTrue(playback.playerHeld)
+    for now in stride(from: 30.0, through: 400, by: 10) { tick(playback, now: now) }
+    XCTAssertEqual(sent, [], "neither the buffer rule nor the mismatch check starts the player again")
+    playback.handle(.pause, source: "media-key", now: 401)
+    tick(playback, now: 401)
+    XCTAssertEqual(sent, [], "a pause after the end asks nothing either")
+    playback.handle(.play, source: "media-key", now: 402)
+    tick(playback, now: 402)
+    XCTAssertFalse(playback.playerHeld)
+    XCTAssertEqual(sent, [.play])
+  }
+
   func testAWrongBeliefIsCorrectedFromTheOutputAndTheRuleAsksAgain() {
     let playback = makePlayback()
     // The attach read the player as playing, but it is paused and posts nothing.
