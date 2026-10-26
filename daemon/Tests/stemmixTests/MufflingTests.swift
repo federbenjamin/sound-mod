@@ -56,6 +56,7 @@ final class MufflingTests: XCTestCase {
       let config = ConfigFile(tracks: 4, player: "spotify", mode: mode, mufflingMax: 10, mufflingMin: 0)
       XCTAssertEqual(try XCTUnwrap(mufflingCutoffHz(config: config, working: 2)), 766, accuracy: 1)
       XCTAssertNil(mufflingCutoffHz(config: config, working: 4))
+      XCTAssertNil(mufflingCutoffHz(config: config, working: 0), "silence names no cutoff")
     }
   }
 }

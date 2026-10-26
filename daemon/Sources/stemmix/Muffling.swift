@@ -35,9 +35,9 @@ func mufflingCutoffHz(level: Double) -> Double? {
   return Config.mufflingCeilingHz * pow(Config.mufflingFloorHz / Config.mufflingCeilingHz, clamped / 10)
 }
 
-/// The cutoff to apply for the config and the count, nil for none.
+/// The cutoff to apply for the config and the count, nil for none; none with no session working, which is silence.
 func mufflingCutoffHz(config: ConfigFile, working k: Int) -> Double? {
-  guard config.mode.muffles else { return nil }
+  guard config.mode.muffles, k > 0 else { return nil }
   return mufflingCutoffHz(level: mufflingLevel(working: k, tracks: config.tracks, max: config.mufflingMax, min: config.mufflingMin))
 }
 
