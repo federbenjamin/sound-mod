@@ -3,7 +3,7 @@ import XCTest
 @testable import stemmix
 
 final class PlayerTests: XCTestCase {
-  /// Rate 1000: the transport fade is 10 frames, the stem gain ramp 400, the recording guard 15000.
+  /// Rate 1000: the transport fade is 10 frames, the stem gain ramp 1000, the recording guard 15000.
   private let preloaded = 5000
 
   private func mix(_ frame: Int, _ ch: Int) -> Float { Float((frame * 7 + ch * 3) % 101) / 100 + 0.1 }
@@ -36,7 +36,7 @@ final class PlayerTests: XCTestCase {
     let (t, p) = makeRig()
     p.audible.store(4, ordering: .relaxed)
     let blocks = play(p, t, blocks: 20)
-    for (cursor, out) in blocks where cursor >= 500 {
+    for (cursor, out) in blocks where cursor >= 1000 {
       for i in 0..<100 {
         XCTAssertEqual(out[i * 2], mix(cursor + i, 0), accuracy: 1e-5)
         XCTAssertEqual(out[i * 2 + 1], mix(cursor + i, 1), accuracy: 1e-5)
@@ -48,8 +48,8 @@ final class PlayerTests: XCTestCase {
   func testSomeStemsAudibleIsQuieterThanTheRecording() {
     let (t, p) = makeRig()
     p.audible.store(1, ordering: .relaxed)  // drums only: 0.2 of the mix
-    let blocks = play(p, t, blocks: 10)
-    let (cursor, out) = blocks[9]
+    let blocks = play(p, t, blocks: 15)
+    let (cursor, out) = blocks[14]
     XCTAssertEqual(out[0], mix(cursor, 0) * 0.2, accuracy: 1e-5)
   }
 

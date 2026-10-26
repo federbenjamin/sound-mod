@@ -67,7 +67,7 @@ Each choice lists three options and the pick. The pick names what it took from t
 | Option | For | Against |
 |---|---|---|
 | A. The first min(k, 4) stems; N is ignored | Simple. | Drops the user's N setting. |
-| B. The first ceil(4k / N) stems, so N sessions play the whole song, with 0.4 s gain ramps | Keeps N meaningful. Any working session is audible. | With N above 4, two counts can sound the same. |
+| B. The first ceil(4k / N) stems, so N sessions play the whole song, with 1 s gain ramps | Keeps N meaningful. Any working session is audible. | With N above 4, two counts can sound the same. |
 | C. Every stem at gain k/N | Smooth. | It's a volume knob, not tracks. |
 
 **Pick: B.** Order: drums, bass, other, vocals (the order the user listened to). The default N becomes 4, so one session is one stem.
