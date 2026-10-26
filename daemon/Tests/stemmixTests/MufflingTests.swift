@@ -3,22 +3,22 @@ import XCTest
 @testable import stemmix
 
 final class MufflingTests: XCTestCase {
-  func testMaxTenMinZeroReproducesTheFirstVersionsCutoffs() throws {
+  func testMaxIsHeardAtOneSessionAndMinAtTracks() throws {
     func hz(_ k: Int) -> Double? {
       mufflingCutoffHz(level: mufflingLevel(working: k, tracks: 4, max: 10, min: 0))
     }
-    XCTAssertEqual(try XCTUnwrap(hz(0)), 150, accuracy: 1e-6)
-    XCTAssertEqual(try XCTUnwrap(hz(1)), 510, accuracy: 1)
-    XCTAssertEqual(try XCTUnwrap(hz(2)), 1732, accuracy: 1)
-    XCTAssertEqual(try XCTUnwrap(hz(3)), 5886, accuracy: 1)
+    XCTAssertEqual(try XCTUnwrap(hz(1)), 150, accuracy: 1e-6)
+    XCTAssertEqual(try XCTUnwrap(hz(2)), 766, accuracy: 1)
+    XCTAssertEqual(try XCTUnwrap(hz(3)), 3915, accuracy: 1)
     XCTAssertNil(hz(4), "a full house hears the unfiltered mix")
+    XCTAssertEqual(mufflingLevel(working: 1, tracks: 1, max: 8, min: 2), 2, "one track: one session is the full song")
   }
 
-  func testDefaultKnobsMuffleOneWorkingSessionToAbout1533Hz() throws {
+  func testDefaultKnobsMuffleOneWorkingSessionToAbout1732Hz() throws {
     let level = mufflingLevel(working: 1, tracks: 4, max: Config.defaultMufflingMax, min: Config.defaultMufflingMin)
-    // Level 7 * 3/4 = 5.25; 20000 * (150/20000)^0.525 = 1532.6 Hz.
-    XCTAssertEqual(level, 5.25, accuracy: 1e-9)
-    XCTAssertEqual(try XCTUnwrap(mufflingCutoffHz(level: level)), 1532.6, accuracy: 1)
+    // Level 5; 20000 * (150/20000)^0.5 = 1732.1 Hz.
+    XCTAssertEqual(level, 5, accuracy: 1e-9)
+    XCTAssertEqual(try XCTUnwrap(mufflingCutoffHz(level: level)), 1732.1, accuracy: 1)
   }
 
   func testMufflingLevelClampsKnobsAndFallsBackToMinWithNoTracks() {
@@ -54,7 +54,7 @@ final class MufflingTests: XCTestCase {
   func testMufflingModesFilterFromTheKnobs() throws {
     for mode in [ListeningMode.muffled, .both] {
       let config = ConfigFile(tracks: 4, player: "spotify", mode: mode, mufflingMax: 10, mufflingMin: 0)
-      XCTAssertEqual(try XCTUnwrap(mufflingCutoffHz(config: config, working: 1)), 510, accuracy: 1)
+      XCTAssertEqual(try XCTUnwrap(mufflingCutoffHz(config: config, working: 2)), 766, accuracy: 1)
       XCTAssertNil(mufflingCutoffHz(config: config, working: 4))
     }
   }

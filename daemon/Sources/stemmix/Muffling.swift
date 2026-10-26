@@ -17,13 +17,13 @@ func audibleStems(mode: ListeningMode, working k: Int, tracks n: Int) -> Int {
   }
 }
 
-/// The muffling level (0 none ... 10 most) for k of n working sessions: a straight line from `max` at no
-/// session to `min` at n sessions, each clamped to 0...10.
+/// The muffling level (0 none ... 10 most) for k of n working sessions: a straight line from `max` at one
+/// session to `min` at n sessions, each clamped to 0...10. No session is silence, so `max` there is never heard.
 func mufflingLevel(working k: Int, tracks n: Int, max: Double, min: Double) -> Double {
   let top = Swift.min(10, Swift.max(0, max))
   let bottom = Swift.min(10, Swift.max(0, min))
-  guard n > 0 else { return bottom }
-  let share = Swift.min(1, Double(Swift.max(k, 0)) / Double(n))
+  guard n > 1 else { return bottom }
+  let share = Swift.min(1, Double(Swift.max(k - 1, 0)) / Double(n - 1))
   return top + (bottom - top) * share
 }
 

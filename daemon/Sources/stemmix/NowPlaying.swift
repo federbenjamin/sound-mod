@@ -28,9 +28,6 @@ final class NowPlaying {
     if observing { notify_cancel(token) }
   }
 
-  /// Who holds the media keys, as the daemon believes; nil while not claimed or without the observer.
-  var mediaKeys: SlotBelief? { claimed && observing ? watch.belief : nil }
-
   func claim(playing: Bool) {
     guard !claimed else { return }
     claimed = true
