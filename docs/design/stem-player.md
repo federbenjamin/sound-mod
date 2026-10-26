@@ -76,7 +76,7 @@ Each choice lists three options and the pick. The pick names what it took from t
 
 | Option | For | Against |
 |---|---|---|
-| A. The daemon becomes the Now Playing app (MPRemoteCommandCenter), so media keys, Control Center and headphones control it | The keyboard controls the player that is actually sounding. | Whether macOS routes the keys to the daemon while Spotify also plays is untested. |
+| A. The daemon becomes the Now Playing app (MPRemoteCommandCenter), so media keys, Control Center and headphones control it | The keyboard controls the player that is actually sounding. | macOS gives the keys to the app that last started playing, so Spotify takes them at each start; choices 11 and 18 take them back. |
 | B. Follow Spotify's own state through its `com.spotify.client.PlaybackStateChanged` notification (no permission needed) | Pausing in Spotify's window stops the sound immediately instead of 2.6 s later. | Can't resume a time-shift, because a paused Spotify records nothing. |
 | C. A command, `stemmix --control pause|play|toggle|next|previous|live`, over a distributed notification | Scriptable, and testable without pressing keys. | Not where anyone's hands are. |
 
@@ -104,7 +104,7 @@ Built later (2026-10-24), C for `next` only: with no later song in the buffer, `
 
 **Pick: A.** This Mac runs macOS 26. Memory: the recording ring holds 6 minutes (138 MB at 48 kHz stereo float), allocated on attach and freed on detach. If you're paused longer than that, the oldest audio is dropped and the cursor moves up to the oldest kept. The stems ring holds 20 s. Playback starts, and restarts after a stall, only once 5 s of stems lie ahead of the cursor: started at the live edge with under a second separated ahead, a slow slice made it play and stall by turns.
 
-Fixed later (2026-10-26): that move ran every IO cycle as a jump, so past 10 minutes of pause the separator worked flat out on slices that were stale before they landed, and play after such a pause never got a slice and stayed silent until `next`. The move now keeps the generation, the worker restarts at the cursor when the cursor passes its frontier, and the worker separates nothing while paused. The separator caps MLX's buffer cache at 1 GB; unbounded it held about 5 GB beside a 0.22 GB model.
+Fixed later (2026-10-26): that move ran every IO cycle as a jump, so past 10 minutes of pause the separator worked flat out on slices that were stale before they landed, and play after such a pause never got a slice and stayed silent until `next`. The move now keeps the generation, the worker restarts at the cursor when the cursor passes its frontier, and the worker separated nothing while paused; choice 19 brings back the paused lookahead, idling only where the cursor is moved up every cycle. The separator caps MLX's buffer cache at 1 GB; unbounded it held about 5 GB beside a 0.22 GB model.
 
 ### 9. The separator's lifetime and install
 
@@ -130,15 +130,136 @@ The stem player replaced the first version's moving low-pass without the user as
 
 One render path for every mode: the separator runs, `muffled` plays all four stems through the filter, `both` plays the k stems through it, `instruments` skips the filter. The filter is the first version's Linkwitz-Riley 4th-order low-pass (two cascaded Butterworth biquads per channel), after the stem mix, with the cutoff gliding to a new target over 0.1 s in the log domain. The start-up gap is left as it is: the user calls it buffering time and wants a clear signal there later, not the filter. Cost accepted: in `muffled` mode the separator does work nobody hears.
 
+### 11. The media keys (2026-10-24)
+
+The evidence: in about 17.7 h of an unbroken Now Playing claim with the tap live, the daemon's log held no `transport source=media-key` line, so the keys never reached it. Apple documents how a macOS app becomes Now Playing (handle a remote command and set `playbackState` every time playback starts or halts [1][2][3]; `MPNowPlayingSession` is not on AppKit macOS [5]) but not how the system chooses between two eligible apps [4]; vendors, forums and Chromium report the slot going to the app that most recently played [6][7][8][9][10]. The only other route is an event tap on the keys, which needs the Accessibility or Input Monitoring grant [11][12][13][14].
+
+| Option | For | Against |
+| --- | --- | --- |
+| A. Keep the claim as is | No work; works if macOS ever routes the keys. | 0 keys in about 17.7 h of live claim. The README promises something that does not happen, and the code is never exercised. |
+| B. Change the claim (re-assert after each Spotify event, add duration and elapsed time) | Might win the slot. | Trial and error against undocumented arbitration; each try needs a hand check. |
+| C. Drop the claim; keys stay with Spotify, which stemmix follows; the menu covers the rest | Deletes `NowPlaying.swift` and its wiring. Play/pause by key still works through Spotify (choice 6B). | Drops the "Media keys, Control Center and headphone buttons" feature, which never worked. Next and previous on the keys mean Spotify's, not the buffer's. |
+| D. An active `CGEventTap` that takes the keys from Spotify | The keys control stemmix exactly. | A new Accessibility grant the installer cannot give. Two key paths, and the tap is lost on every ad hoc rebuild. |
+
+**Pick: A, kept and made to win (choice 18)**, the user's ruling. Reading mediaremoted's log showed the slot goes to the client that most recently changed its playback state into Playing, and stemmix lost it because its own state did not change when Spotify started playing. So the claim stays, and choice 18 makes stemmix's state change after Spotify's.
+
+### 12. Where the menu lives
+
+| Option | For | Against |
+| --- | --- | --- |
+| A. In the daemon's process, on its existing `NSApplication` | One bundle and one launchd agent (`KeepAlive` already keeps it up). Direct reads of state, no new contract. A status item needs no permission, so the audio grant is untouched. | A crash in menu code takes the tap down with it, and a death with the tap running wedges coreaudiod (plan review item 1). |
+| B. A separate menu app; the daemon writes a state file to `~/.local/state/stemmix/`; commands go over the existing distributed notification | A UI crash cannot touch the tap. | A second app to install and keep alive, and a new file shape in `contract/` with two readers. |
+| C. A SwiftBar/xbar plugin running `stemmix --status` | Little UI code. | A third-party app to install, polling, and a second install step. |
+
+**Pick: A.** It is the simplest shape and keeps one install command. The con is handled by keeping every decision in pure, tested functions (choice 14) and the AppKit file thin.
+
+### 13. AppKit or SwiftUI
+
+| Option | For | Against |
+| --- | --- | --- |
+| A. `NSStatusItem` + `NSMenu`, plain `NSMenuItem`s | Fits the existing `NSApplication.run()`. Items can change while the menu is open, and the daemon's timer is in `.common` modes, which include event tracking [15], so `tick` keeps updating it. Background Music, an audio-driver app, does this with template icons [16]. | More lines than SwiftUI. |
+| B. SwiftUI `MenuBarExtra`, `.menu` style | Declarative. | A `Scene`: needs the SwiftUI `App` lifecycle in place of `@main enum Main` and its command-line modes. Reported: content not refreshing while open [17], the menu blocking the run loop, no API to the status item [18]. A menu-bar-only app is "automatically terminated" when the user removes the extra [19], bypassing the signal handler's teardown. |
+| C. `MenuBarExtra`, `.window` style | Rich layout. | The same lifecycle cost, reported resize bugs [17]; nobody asked for rich layout. |
+
+**Pick: A.**
+
+### 14. How the menu gets its state
+
+| Option | For | Against |
+| --- | --- | --- |
+| A. Each tick, `Daemon` builds one `MenuSnapshot` (a value, `Equatable`) and hands it to the menu only when it changed; a pure `menuContent(_:)` turns it into what is shown | Every decision can be tested without a runtime. No live objects leave their owners. | One more struct. |
+| B. The menu reads `Playback` and `Daemon` fields itself in `menuNeedsUpdate(_:)` | Fewer types. | Stale while the menu is open, and it reaches into other modules' internals. |
+| C. Parse the log | Decoupled. | The log is not a contract. |
+
+**Pick: A.** The snapshot is built on every tick, attached or not. Detached, it carries the reason, from the two halves of the attach decision (switched on, the player running) and the last refused permission, which a successful attach clears: "Off", "Spotify is not running", "Needs System Audio Recording permission" or "Attaching". Attached, `Playback.snapshot()` returns a value from one load each of the recording head and the cursor:
+
+- whether stemmix plays: Playback's intent, the last play or pause it sent. The IO thread's own flag changes only inside its render call, a cycle after each command, and never when the IO proc is dead, so the intent is the truth for the menu, for `toggle` and for Now Playing; the `level` line's `state=` keeps the applied flag.
+- the song under the cursor; the recording buffered ahead of it ("Playing, 4:32 buffered"), from the same `bufferedFrames` the buffer rule reads (choice 19). The "Spotify is paused" line went with choice 19: Play now resumes Spotify too.
+- which of next and previous would act: `availableCommands` maps each through `resolve` with the inputs a command gets, so a greyed item never disagrees with what the command does. Back to live left the menu with choice 19; `--control live` stays.
+
+It never calls `status()`, which drains the meters behind the 10 s `level` line. Beside it the snapshot carries the counts, the player's name, the audible stems and the muffling cutoff, but not `tracks` or `mode`: no line shows `tracks`, and the mode reaches the menu only through the cutoff, which is nil when the mode does not muffle. It also carries the last `level` line's sample count: at 0 the state line reads "No audio from Spotify", because the tap's meters count every frame it is handed, silent or not, so 0 means no audio reached the daemon at all, whatever the cause. The first `level` line after an attach waits a full interval, so it never reads 0 by construction. Last, the Media keys line: "Media keys: Stemmix" or "Media keys: another app" from the daemon's belief (choice 18), hidden while detached or when the slot observer did not register. The stem names and the cutoff label are the `count` line's words, from the same two functions.
+
+### 15. The status bar icon
+
+| Option | For | Against |
+| --- | --- | --- |
+| A. Icon only, `NSStatusItem.squareLength` [20] | Fixed width; nothing in the bar jitters. | The song is one click away. |
+| B. Icon plus text (k/N or the title) | Visible at a glance. | Variable width that changes every tick or every song, and it takes menu bar space. |
+| C. Text only | Most information. | Same as B, and worse. |
+
+**Pick: A**, the user's ruling. Three states, SF Symbols from `NSImage(systemSymbolName:accessibilityDescription:)` [21] marked template [22]: detached `waveform` with `appearsDisabled` [23], playing `waveform`, paused `pause.circle` (names in `Config.swift`).
+
+### 16. Album art
+
+| Option | For | Against |
+| --- | --- | --- |
+| A. Title and artist only, from the song under the cursor | No new data path. | No picture. |
+| B. Art from Spotify's oEmbed endpoint, `open.spotify.com/oembed?url=spotify:track:<id>` [24] | No permission and no key; it returns a 300 px `thumbnail_url` for a track id. | A network call from the daemon for each song, an image cache, Spotify only, and an undocumented rate limit. |
+| C. Spotify's AppleScript `artwork url` | Exact. | Needs the Automation permission (choice 7C). |
+
+**Pick: A.** A plain title and artist line was accepted; art needs a network dependency that serves no control need. Spotify's local cache is an opaque browser cache, not addressable by track id, and the notification the daemon reads carries no art.
+
+### 17. Restart and quit
+
+The daemon is a launchd agent with `KeepAlive`, so an ordinary exit is restarted at once.
+
+| Option | For | Against |
+| --- | --- | --- |
+| A. Restart and Quit. Restart: the signal handler's teardown, then exit; launchd relaunches within its 10 s spawn throttle (`man launchd.plist`, `ThrottleInterval`). Quit: `launchctl bootout gui/<uid>/com.benjaminfeder.stemmix`; launchd sends SIGTERM to the same handler and the daemon stays stopped until the next login or `./install.sh` | One teardown path for both. Quit gives Spotify back mid-session. | After Quit there is no menu to start it from. |
+| B. Restart only | No stopped state to explain. | No way to hear Spotify normally while sessions are open. |
+| C. Neither | Least code. | A stuck daemon needs a terminal. |
+
+**Pick: A**, the user's ruling. One teardown serves the signals, Restart and Quit. Quit first stops the tick from attaching and tears down, then runs the bootout: otherwise a tick could attach again before launchd's SIGTERM, and that teardown would race launchd's 5 s exit timeout. The label comes from the job's own `XPC_SERVICE_NAME` (`install.sh` stays its one source); outside launchd that is `0` or absent, and Quit just exits. A `launchctl` that fails to start or exits non-zero is a bootout that failed: it is logged as `quit-failed`, and the daemon carries on. An exit 0, or a `launchctl` ended by a signal (launchd ends the job's process group), is the bootout working, so the tick stays stopped until launchd's SIGTERM ends the daemon.
+
+### 18. Winning the media keys (2026-10-24)
+
+How a key travels: keyboard, then `rcd`, then mediaremoted, then the one active Now Playing client. mediaremoted moves that slot to whichever client most recently changed its playback state into Playing. A client that reports Paused keeps the slot; setting the same state again or new track info moves nothing; Spotify never retakes the slot on its own. stemmix won the slot at every claim and lost it when Spotify changed from Paused to Playing while stemmix's own state did not change: after an attach made while Spotify was paused, and while stemmix already played its buffer when Spotify resumed.
+
+| Option | For | Against |
+| --- | --- | --- |
+| A. A state pulse: on each Spotify change into Playing (the daemon already receives `PlaybackStateChanged`), and at claim, stemmix sets its `playbackState` through Playing and ends on its true state, so mediaremoted sees a fresh change into Playing from stemmix after Spotify's | Public API only, no permission, uses exactly the rule observed; Spotify does not fight back, so no loop. | Whether two sets within one run-loop turn reach mediaremoted as two changes had to be proved first (below). |
+| B. Pulse on a timer | Self-healing. | Steals the keys from every other app the user starts; blips Control Center every cycle. |
+| C. Event tap on the key | Keys are stemmix's regardless. | Accessibility grant; a second key path. |
+
+**Pick: A.** One pulse per Spotify event, no timer. The pulse keys off the state stemmix last set, because a same-value set never reaches mediaremoted: Paused only when the last set was Playing, then Playing, then Paused when stemmix is paused. So mediaremoted sees exactly one change into Playing, and the last set is the truth (Playback's intent, choice 14). A paused stemmix keeps the slot, and the next key resumes it.
+
+The daemon cannot read who holds the slot without linking MediaRemote, so it keeps a belief. mediaremoted posts the Darwin notification `com.apple.MediaRemote.activePlayerPathDidChange` on every slot move, which the daemon observes through libnotify. A post within 1 s of an own move of the slot is stemmix's own (`now-playing held`): a set into Playing that moved it, or a release while holding it, whose move back to the previous holder posts too, so a detach and an attach in one tick expect both posts. Any other post is a loss unless an own set answers it within 1 s, which covers Spotify's own start: its post comes before the notification that triggers the pulse. A loss logs `now-playing lost` and retakes the slot at most once every 30 s, so an app that also retakes on loss cannot loop with stemmix; a loss inside that time leaves the keys with that app until stemmix next changes into Playing. The menu's Media keys line shows this belief.
+
+Proof, 2026-10-24 on macOS 26.6.2, with a probe accessory app that plays no audio: each pulse, Paused then Playing in the same run-loop turn, on the next turn or 50 ms apart, gave two `setting playback state` lines in mediaremoted's log (19:09:55.243 and .243 for the same-turn pair); a same-value set gave none. The probe's first Playing took the slot at 19:09:52.096, and `notifyutil` saw the `activePlayerPathDidChange` post through libnotify at 19:09:52.108.
+
+### 19. Stemmix owns playback; Spotify fills its buffer (2026-10-26)
+
+The user's rulings: play and pause control stemmix, and stemmix decides on its own whether Spotify plays. While stemmix plays, Spotify plays; while stemmix is paused, Spotify keeps playing, muted, until 5 minutes are buffered ahead of the cursor, then stemmix pauses it; play resumes Spotify at once. Spotify's own play and pause are a remote for stemmix, and a pause made there holds (no refill until a play). A song picked in Spotify plays now. An on/off switch in the menu replaces attaching only while a session is open: on, stemmix taps Spotify whenever it runs.
+
+| Option | For | Against |
+| --- | --- | --- |
+| A. A pure rule (`playerShouldPlay`: stemmix plays, or buffered under the target and not held) applied each tick by `Playback`, which sends play or pause through `PlayerControl` and expects the player's answer within 3 s | One decision, tested without a runtime; the user's key press and Spotify's play are decoupled. | Stemmix starts and stops Spotify often, and each start pulses the media keys (choice 18). |
+| B. Forward every key press to Spotify and keep the rest as today | No new state. | Pause would stop the recording too, so play after a pause has nothing buffered; the coupling the user ruled out. |
+| C. Pause Spotify at once and refill on a timer | Simple. | A timer is not the buffer; the cursor plays into nothing. |
+
+**Pick: A.** The parts:
+
+- **The recording moves only over sound.** A paused, tapped Spotify hands over exact zeros, and recording them would fill the buffer with silence once stemmix pauses Spotify. `Player.record` skips a block whose every sample is 0, so `head - cursor` is the music buffered. A state gate from the follower was rejected: the notification lands tens of ms after the change, so each pause would record that much silence and each resume drop that much music. Cost: exact digital silence inside a song is skipped too, so the cursor plays straight across it. The meters still count every frame.
+- **Own sends are told apart by their echo.** Each own play, pause or next expects one player event of its kind (`PendingEchoes`, shared with the media-key slot watch of choice 18) within `Config.playerEchoWindow`; a matching event inside it is followed silently, any other is the user's. A command the player does not take is not asked again until the wanted state changes, so a denied permission does not repeat every tick.
+- **A pick is judged by play time.** The follower counts a song's play time from Spotify's positions, plus wall time only while playing, so a pick after a stemmix-made pause is not read as the song ending.
+- **The paused separator still fills the lookahead.** While paused it separates up to 8 s ahead of the cursor, so play starts at once; it idles where the overflow moves the cursor every cycle (choice 8's case), which the 5-minute target, below the 6-minute ring minus its guard, never reaches.
+- **The attach reads Spotify's state.** A Spotify paused at the attach is the user's pause: stemmix starts paused and held rather than starting Spotify at every login or restart. A Spotify that plays starts stemmix playing; the cold start waits for the 5 s prebuffer.
+- **A re-attach keeps the intent.** A new output device, a new player process or a dead tap re-attaches inside one run with the last attach's play state and hold, not the player's: the player plays behind a paused stemmix, so its state would start the music.
+- **The belief is checked.** Spotify's notifications are the only thing that change stemmix's idea of its state; when Core Audio's "is outputting" disagrees for 3 s with no own command waiting, the belief takes Core Audio's word and the rule asks again, so a missed notification cannot stall the rule.
+- **The queue ending is not a pause.** A stop, or a pause within 5 s of the song's end with no next song, keeps stemmix playing out its buffer and holds the player (no ask) until a play. The exact notification Spotify posts at its queue's end is unverified.
+- **Off** (`~/.local/state/stemmix/off` exists) releases the tap, drops the buffer and the Now Playing claim. Off, Restart and Quit first pause a Spotify that fills behind a paused stemmix, so it is not heard minutes past where the user paused; a Spotify already paused stays where it is.
+
 ## Behaviour summary
 
-- Attached (a live session and the player outputting): Spotify is muted at the source. The recording runs. The cursor starts at the recording head and plays once stems exist (about 2.6 s).
+- Attached (switched on and the player running): Spotify is muted at the source. The recording runs while Spotify plays. The cursor starts at the recording head and plays once 5 s of stems lie ahead.
 - k = 0: the cursor keeps moving, gain 0. Unchanged from today.
 - `mode`: `instruments` thins by stems; `muffled` plays all four stems low-passed; `both` plays the k stems low-passed. The cutoff for k of N runs from `muffling_max` to `muffling_min` (choice 10).
-- Pause (key, Spotify, or command): a 10 ms fade, then the cursor stops. The recording continues.
-- Play: from the cursor.
+- Pause (key, menu, or command): a 10 ms fade, then the cursor stops. Spotify keeps playing, muted, until 5 minutes are buffered, then stemmix pauses it. A pause made in Spotify pauses stemmix and holds: no refill until a play (choice 19).
+- Play (any source): from the cursor; Spotify resumes at once.
 - Next: the next song start in the buffer, else the player skips and the cursor plays the new song from its start. Previous: the start of the current song if it's buffered.
-- Detach (no live session for 60 s): the tap, the recording and the separator go away, and Spotify sounds normal at its own position. Any time-shift is lost.
+- Detach (switched off, or the player quit): the tap, the recording and the separator go away, and Spotify sounds normal at its own position. Any time-shift is lost.
+- Media keys (attached): the daemon is the Now Playing app with its own play state; each time the player starts playing it pulses its state through Playing to take the keys back, and a loss to another app is answered at most once every 30 s (choice 18).
+- Menu bar: one icon (dimmed waveform detached, waveform playing, pause symbol paused) and a menu with the song, the state, the sessions, the stems, the Media keys line, the transport commands greyed when they would do nothing, Open log, Restart and Quit (choices 12 to 17).
 
 ## Not built
 
@@ -161,9 +282,36 @@ One read by a plan-review agent before building. Each finding and what changed:
 3. The last F samples of a slice change when the next slice lands. **The published stems frontier is the slice end minus F; ring slots behind the frontier never change until the next seek.**
 4. Tap creation had its permission check at three call sites. **The preflight moves into `ProcessTap.init`, which throws when not authorized.** `--simulate` and `--control` never construct a tap.
 5. The Python sum test now sums the model's own four stems (within 20 dB); the exact all-on check belongs to `--simulate` at k = 4.
-6. Nothing proved Now Playing. **The daemon runs as an accessory NSApplication; the media-key route is a hand check for the user** (press play/pause with Spotify playing; the log names each command's source). Choice 6B covers pause if the keys never arrive.
+6. Nothing proved Now Playing. **The daemon runs as an accessory NSApplication; the media-key route is a hand check for the user** (press play/pause with Spotify playing; the log names each command's source). Choice 6B covers pause if the keys never arrive. (Choice 18 proved that the pulse's two sets reach mediaremoted as two changes; that the keys reach the daemon while Spotify plays is still the user's hand check.)
 7. N = 4 changes at all five places that say 5: `Config.swift`, `plugin.json`, `register.ts`, `contract/config.json`, README.
 8. The macOS 15 floor goes into both `Package.swift` and `Info.plist`.
 9. **The recording ring is touched once off the IO thread before the tap starts**, so the IO thread never takes a first-write page fault.
 10. The separator writes frames to a private copy of stdout and points fd 1 at stderr.
 11. Right context when behind is capped at **3.5 s** (2.5 s until 2026-10-26; see choice 3's pick).
+
+## Sources for choices 11 to 18
+
+1. https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfocenter/playbackstate
+2. https://developer.apple.com/videos/play/wwdc2019/501/
+3. https://developer.apple.com/documentation/mediaplayer/becoming-a-now-playable-app (sample, `MacNowPlayableBehavior.swift`)
+4. https://developer.apple.com/videos/play/wwdc2022/110338/
+5. https://developer.apple.com/documentation/mediaplayer/mpnowplayingsession
+6. https://chatgate.ai/post/smartpause
+7. https://beamhook.app/media-keys-wrong-app/
+8. https://developer.apple.com/forums/thread/685333
+9. https://developer.apple.com/forums/thread/799691
+10. https://ayakael.net/mirrors/electron/commit/db8644ee7a7e6e80802508a13ee06c6f20ee1a1c
+11. https://git.tjdev.de/mirror/mpv/src/commit/4a4d2155d8e76b06380043de73439dc6f80d7d6b/osdep/macosx_events.m
+12. https://github.com/nevyn/SPMediaKeyTap
+13. https://developer.apple.com/documentation/coregraphics/cgevent/tapcreate(tap:place:options:eventsofinterest:callback:userinfo:)
+14. https://developer.apple.com/forums/thread/122492 and https://developer.apple.com/forums/thread/828052
+15. https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Multithreading/RunLoopManagement/RunLoopManagement.html
+16. https://github.com/kyleneideck/BackgroundMusic/blob/master/BGMApp/BGMApp/BGMStatusBarItem.mm
+17. https://developer.apple.com/forums/thread/720625
+18. https://github.com/orchetect/MenuBarExtraAccess
+19. https://developer.apple.com/documentation/swiftui/menubarextra
+20. https://developer.apple.com/documentation/appkit/nsstatusitem/squarelength
+21. https://developer.apple.com/documentation/appkit/nsimage/init(systemsymbolname:accessibilitydescription:)
+22. https://developer.apple.com/documentation/appkit/nsimage/istemplate
+23. https://developer.apple.com/documentation/appkit/nsstatusbarbutton/appearsdisabled
+24. https://developer.spotify.com/documentation/embeds/reference/oembed

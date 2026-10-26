@@ -13,7 +13,7 @@
 
 ## Layout
 
-- `daemon/`: Swift package. `Daemon.swift` orchestrates; `Playback.swift` owns one attach's audio and is the one entry for transport commands; `Timeline.swift` (rings), `Player.swift` (the IO thread), `SeparationWorker.swift` + `Separator.swift` (the separator process). Pure and tested: `State.swift`, `Stems.swift`, `Schedule.swift`, `Transport.swift`, `SeparatorProtocol.swift`. `Audio.swift` touches Core Audio. `Simulate.swift` runs everything but Core Audio offline.
+- `daemon/`: Swift package. `Main.swift` is the entry and its command-line modes; `Daemon.swift` orchestrates; `Playback.swift` owns one attach's audio and is the one entry for transport commands; `Timeline.swift` (rings), `Player.swift` (the IO thread), `SeparationWorker.swift` + `Separator.swift` (the separator process), `NowPlaying.swift` (the Now Playing claim and the media keys), `StatusMenu.swift` (the menu bar item, AppKit). Pure and tested: `State.swift`, `Stems.swift`, `Schedule.swift`, `Transport.swift`, `Echoes.swift` (own actions' expected answers), `SeparatorProtocol.swift`, `Menu.swift`, `MediaKeys.swift`, `Launchd.swift` (Quit's launchd job). `Audio.swift` touches Core Audio. `Simulate.swift` runs everything but Core Audio offline.
 - `separator/`: the Python HTDemucs separator (`uv` project); tests in `separator/test_separator.py`.
 - `docs/design/stem-player.md`: the design and its choices.
 - Session sources, two interchangeable writers of the same session files (`contract/README.md`):
