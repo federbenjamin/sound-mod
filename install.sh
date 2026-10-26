@@ -49,6 +49,11 @@ cat > "$PLIST" <<EOF
 </plist>
 EOF
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+# bootout returns before the old agent is gone, and bootstrapping over it fails with error 5.
+for _ in $(seq 50); do
+  launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || break
+  sleep 0.2
+done
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 echo "daemon: running as $LABEL (log: $STATE/stemmix.log)"
 

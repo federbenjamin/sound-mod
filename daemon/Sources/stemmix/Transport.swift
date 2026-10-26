@@ -11,6 +11,8 @@ enum TransportAction: Equatable {
   case play
   case pause
   case seek(Int)
+  /// No later song is recorded: ask the music player itself to skip. Carried out on the main thread, not the IO thread.
+  case skipPlayer
 }
 
 /// A song start on the timeline, from the music player's track-change notification.
@@ -30,8 +32,8 @@ func resolve(_ command: TransportCommand, cursor: Int, head: Int, playing: Bool,
   case .live:
     return cursor >= liveEdge - rate ? .none : .seek(liveEdge)
   case .next:
-    if let mark = marks.first(where: { $0.frame > cursor + rate && $0.frame < liveEdge }) { return .seek(mark.frame) }
-    return cursor >= liveEdge - rate ? .none : .seek(liveEdge)
+    if let mark = marks.first(where: { $0.frame > cursor + rate }) { return .seek(mark.frame) }
+    return .skipPlayer
   case .previous:
     let started = marks.filter { $0.frame <= cursor }
     guard let current = started.last else { return .none }
@@ -84,19 +86,22 @@ private func number(_ value: Any?) -> Double? {
 
 /// Follows the music player: its pause and play become the player's, and each track change becomes a song mark.
 /// A track change well before the old song's end is a skip made in the music player; when the cursor is behind
-/// the live edge, the skip jumps the cursor to the new song.
+/// the live edge, the skip jumps the cursor to the new song. `awaitingSkip`: the daemon asked the player to skip,
+/// so the next track change jumps the cursor to the new song's start.
 struct PlayerFollower {
   private var lastState: PlayerEvent.State?
   private var trackID: String?
   private var trackStartedAt: TimeInterval?
   private var trackDuration: Double?
 
+  /// The player's play state to follow (`.play`, `.pause` or `.none`), a cursor jump, and a new song's mark.
   struct Reaction: Equatable {
     var action: TransportAction = .none
+    var seek: Int?
     var mark: TrackMark?
   }
 
-  mutating func handle(_ event: PlayerEvent, now: TimeInterval, head: Int, behindLive: Bool) -> Reaction {
+  mutating func handle(_ event: PlayerEvent, now: TimeInterval, head: Int, behindLive: Bool, awaitingSkip: Bool = false) -> Reaction {
     var reaction = Reaction()
     if event.state != .playing, lastState == .playing || lastState == nil {
       reaction.action = .pause
@@ -114,7 +119,7 @@ struct PlayerFollower {
       trackDuration = event.durationSeconds
       trackStartedAt = now - (event.positionSeconds ?? 0)
       reaction.mark = TrackMark(frame: head, title: event.title, artist: event.artist)
-      if skipped, behindLive, event.state == .playing { reaction.action = .seek(head) }
+      if awaitingSkip || (skipped && behindLive && event.state == .playing) { reaction.seek = head }
     }
     return reaction
   }

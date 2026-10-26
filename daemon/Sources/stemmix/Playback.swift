@@ -9,8 +9,13 @@ final class Playback {
   private let worker: SeparationWorker
   private var follower = PlayerFollower()
   private(set) var marks: [TrackMark] = []
+  /// Asks the music player to skip to its next track, then reports on the main thread whether it was sent.
+  private let skipPlayer: (@escaping (Bool) -> Void) -> Void
+  /// Set while a forwarded "next" waits for the player's track change.
+  private var awaitingSkipUntil: TimeInterval?
 
-  init(rate: Int) {
+  init(rate: Int, skipPlayer: @escaping (@escaping (Bool) -> Void) -> Void) {
+    self.skipPlayer = skipPlayer
     timeline = Timeline(rate: rate, recordingSeconds: Config.recordingSeconds, stemsSeconds: Config.stemsSeconds)
     let player = Player(timeline: timeline)
     self.player = player
@@ -29,11 +34,27 @@ final class Playback {
   var playing: Bool { player.playing.load(ordering: .relaxed) }
 
   @discardableResult
-  func handle(_ command: TransportCommand, source: String) -> TransportAction {
+  func handle(_ command: TransportCommand, source: String, now: TimeInterval) -> TransportAction {
     let head = timeline.head.load(ordering: .acquiring)
     let cursor = timeline.cursor.load(ordering: .acquiring)
     let action = resolve(command, cursor: cursor, head: head, playing: playing, marks: keptMarks(head: head), rate: timeline.rate, liveLag: player.shape.liveLag)
-    player.send(action)
+    if action == .skipPlayer, awaitingSkipUntil != nil {
+      Log.line("transport source=\(source) command=\(command.rawValue) action=none: a forwarded next is still waiting")
+      return .none
+    }
+    if action == .skipPlayer {
+      // Silence from now: the cursor waits at the head, then jumps to the new song's start when it is marked.
+      player.send(.seek(head))
+      awaitingSkipUntil = now + Config.forwardedSkipTimeout
+      skipPlayer { [weak self] sent in
+        guard let self, !sent, awaitingSkipUntil != nil else { return }
+        // The player was never asked: put the cursor back where it was.
+        awaitingSkipUntil = nil
+        player.send(.seek(cursor))
+      }
+    } else {
+      player.send(action)
+    }
     Log.line("transport source=\(source) command=\(command.rawValue) action=\(describe(action)) behind=\(seconds(head - cursor))")
     return action
   }
@@ -42,11 +63,23 @@ final class Playback {
     let head = timeline.head.load(ordering: .acquiring)
     let cursor = timeline.cursor.load(ordering: .acquiring)
     let behindLive = head - cursor > player.shape.liveLag + timeline.rate
-    let reaction = follower.handle(event, now: now, head: head, behindLive: behindLive)
-    if let mark = reaction.mark { marks.append(mark) }
+    let awaitingSkip = awaitingSkipUntil.map { now < $0 } ?? false
+    let reaction = follower.handle(event, now: now, head: head, behindLive: behindLive, awaitingSkip: awaitingSkip)
+    if let mark = reaction.mark {
+      marks.append(mark)
+      awaitingSkipUntil = nil
+    }
     marks = keptMarks(head: head)
     player.send(reaction.action)
-    Log.line("player-event state=\(event.state.rawValue) track=\(event.trackID ?? "-") mark=\(reaction.mark.map { String($0.frame) } ?? "-") action=\(describe(reaction.action))")
+    if let frame = reaction.seek { player.send(.seek(frame)) }
+    Log.line("player-event state=\(event.state.rawValue) track=\(event.trackID ?? "-") mark=\(reaction.mark.map { String($0.frame) } ?? "-") action=\(describe(reaction.action)) seek=\(reaction.seek.map(seconds) ?? "-")")
+  }
+
+  /// Stops waiting for a forwarded "next" the player never answered with a track change.
+  func expireForwardedSkip(now: TimeInterval) {
+    guard let until = awaitingSkipUntil, now >= until else { return }
+    awaitingSkipUntil = nil
+    Log.line("transport forward=next result=timeout: no track change within \(Int(Config.forwardedSkipTimeout))s")
   }
 
   func setAudible(_ count: Int) { player.audible.store(count, ordering: .relaxed) }
@@ -90,6 +123,7 @@ final class Playback {
     case .play: return "play"
     case .pause: return "pause"
     case let .seek(frame): return "seek:\(seconds(frame))"
+    case .skipPlayer: return "skip-player"
     }
   }
 }

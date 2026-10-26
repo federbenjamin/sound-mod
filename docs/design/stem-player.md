@@ -92,6 +92,8 @@ Each choice lists three options and the pick. The pick names what it took from t
 
 **Pick: B.** C stays an open question for the user (`afk-questions.md` Q1).
 
+Built later (2026-10-24), C for `next` only: with no later song in the buffer, `next` sends the player its AppleScript `next track` Apple event (Spotify `spfy`/`Next`, Music `hook`/`Next`). The cursor jumps to the recording head at once and waits there in silence; the player's track change marks the new song, and the cursor jumps to that mark and plays once its stems exist. If no track change comes within 3 s, it stops waiting and the current song plays on from the head. This replaced `next` jumping to the live edge, mid-song, when nothing was ahead. `live` still does that.
+
 ### 8. Threads and memory
 
 | Option | For | Against |
@@ -133,19 +135,18 @@ One render path for every mode: the separator runs, `muffled` plays all four ste
 - `mode`: `instruments` thins by stems; `muffled` plays all four stems low-passed; `both` plays the k stems low-passed. The cutoff for k of N runs from `muffling_max` to `muffling_min` (choice 10).
 - Pause (key, Spotify, or command): a 10 ms fade, then the cursor stops. The recording continues.
 - Play: from the cursor.
-- Next: the next song start in the buffer, else the live edge. Previous: the start of the current song if it's buffered.
+- Next: the next song start in the buffer, else the player skips and the cursor plays the new song from its start. Previous: the start of the current song if it's buffered.
 - Detach (no live session for 60 s): the tap, the recording and the separator go away, and Spotify sounds normal at its own position. Any time-shift is lost.
 
 ## Not built
 
-- Skipping in Spotify from the keyboard at the live edge (choice 7C; open question Q1).
 - Apple Music track boundaries: its `com.apple.Music.playerInfo` notification is parsed with the same shape, but nothing here was verified with Apple Music.
 
 ## Proof
 
 - Swift unit tests: k to stems, the separation schedule, crossfade ramps, the timeline rings including wrap and the overflow drop, transport (pause fade, seek, next/previous), notification parsing and skip detection, protocol frames against the `contract/` fixtures.
 - Python test: the separator returns the requested slice in the right shape, and drums+bass+vocals+other adds back up to the input.
-- Offline end-to-end: `stemmix --simulate <recording.f32> <out.f32> <script>` runs the real timeline, worker, separator and render code on the Blinding Lights recording with a scripted k, pause and resume. Check: k = 4 is the input delayed (exact), and a pause produces silence then resumes at the same sample.
+- Offline end-to-end: `stemmix --simulate <recording.f32> <out.f32> <script>` runs the real timeline, worker, separator and render code on the Blinding Lights recording with a scripted k, pause and resume. Check: k = 4 is the input delayed (exact), and a pause produces silence then resumes at the same sample. With a simulated player over two songs, `next` at the live edge gives exact silence, then the second song from its first sample.
 - Live: the installed daemon with Spotify playing and a scripted session file. The log shows attach, separator ready, steady lead, no underruns, an output level, and pause/play/next by command.
 
 ## Plan review (2026-10-23), applied
