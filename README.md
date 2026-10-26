@@ -27,7 +27,7 @@ Then install one session source; each carries the same settings: `tracks`, `play
 
 Before the daemon first taps the player, macOS needs Stemmix allowed under System Settings > Privacy & Security > Screen & System Audio Recording > **System Audio Recording Only**: add `~/Applications/Stemmix.app` there with the + button. The daemon never taps before it is allowed, so no prompt appears on its own, and nothing else can raise one for it (not SSH, not a terminal-launched binary: TCC attributes those to the terminal).
 
-The first time you press next with no later song buffered, macOS asks whether Stemmix may control Spotify (or Music). Without it, next there only drops the sound for a moment and the song plays on; you can change it later under System Settings > Privacy & Security > Automation.
+The first time stemmix plays or pauses Spotify (or Music) to keep its buffer filled, usually your first play after a pause, macOS asks whether Stemmix may control it. Without it, stemmix cannot start or stop Spotify: play after a pause plays only what is buffered, a pause leaves Spotify playing muted until the recording is full and its oldest audio is dropped, and next with no later song buffered only drops the sound for a moment. You can change it later under System Settings > Privacy & Security > Automation.
 
 ## Features
 
@@ -85,8 +85,8 @@ The daemon and the session sources meet in `~/.local/state/stemmix/`; the daemon
 
 ### Known limits
 
-- Whether the media keys reach the daemon while Spotify plays has not been checked by hand yet: the pulse that takes them back was proved with a probe app against mediaremoted, not with the installed daemon and Spotify. If they do not, the keys go to Spotify, and following Spotify's own pause still stops the sound at once.
-- When another app (a browser video) takes the media keys, the daemon takes them back at most once every 30 s, so a second take inside that time leaves them with that app until stemmix or Spotify next starts playing. The menu's Media keys line is the daemon's belief: macOS does not say who holds them. A Spotify that was paused when the daemon attached (at login, a switch-on or a restart) counts as paused by you: stemmix starts paused and does not start it.
+- Whether the media keys reach the daemon while Spotify plays has not been checked by hand yet: the pulse that takes them back was proved with a probe app against mediaremoted, not with the installed daemon and Spotify. If they do not, the keys go to Spotify, and following Spotify's own pause still stops the sound at once; but such a pause is one made in Spotify, so it holds and does not fill the buffer.
+- When another app (a browser video) takes the media keys, the daemon takes them back at most once every 30 s, so a second take inside that time leaves them with that app until stemmix or Spotify next starts playing. The menu's Media keys line is the daemon's belief: macOS does not say who holds them. A Spotify that was paused when the daemon attached (at login or a switch-on) counts as paused by you: stemmix starts paused and does not start it. Switching off, Restart and Quit pause a Spotify that was filling behind a paused stemmix first, so it is not heard past where you paused. When Spotify ends its own queue, stemmix plays out what it has buffered and does not start Spotify again until you press play.
 - The music keeps playing silently at zero working sessions; it is not paused.
 - Apple Music streamed (FairPlay) tracks and its track notifications were not verified here.
 - The music comes out of the Mac the daemon runs on. The Claude Code plugin counts sessions on that Mac only; the herdr plugin also counts the saved machines herdr can reach, with a second or two of lag for those.

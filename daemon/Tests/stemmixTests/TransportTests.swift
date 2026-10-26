@@ -77,10 +77,20 @@ final class TransportTests: XCTestCase {
 
   func testThePlayerPlaysWhileStemmixPlaysElseFillsToTheTargetUnlessHeld() {
     XCTAssertTrue(playerShouldPlay(playing: true, held: false, buffered: 500, target: 300))
-    XCTAssertTrue(playerShouldPlay(playing: true, held: true, buffered: 0, target: 300))
     XCTAssertTrue(playerShouldPlay(playing: false, held: false, buffered: 299, target: 300))
     XCTAssertFalse(playerShouldPlay(playing: false, held: false, buffered: 300, target: 300))
     XCTAssertFalse(playerShouldPlay(playing: false, held: true, buffered: 0, target: 300))
+  }
+
+  func testAHeldPlayerIsNeverAskedToPlayEvenWhileStemmixPlays() {
+    XCTAssertFalse(playerShouldPlay(playing: true, held: true, buffered: 0, target: 300))
+  }
+
+  func testAnAttachTakesTheLastAttachsIntentElseThePlayersState() {
+    XCTAssertTrue(attachIntent(playerPlaying: true, resume: nil) == (true, false))
+    XCTAssertTrue(attachIntent(playerPlaying: false, resume: nil) == (false, true))
+    XCTAssertTrue(attachIntent(playerPlaying: true, resume: (false, false)) == (false, false))
+    XCTAssertTrue(attachIntent(playerPlaying: false, resume: (true, false)) == (true, false))
   }
 
   func testAvailableCommandsAreExactlyTheResolverCommandsThatWouldAct() {
