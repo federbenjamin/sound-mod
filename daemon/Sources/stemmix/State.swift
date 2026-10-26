@@ -40,9 +40,17 @@ struct Counts: Equatable {
   let working: Int
 }
 
-func summarize(sessions: [SessionFile], nowMs: Double, staleMs: Double) -> Counts {
-  let live = sessions.filter { nowMs - $0.updatedAt < staleMs }
-  return Counts(live: live.count, working: live.filter(\.working).count)
+/// Counts live sessions, and working ones with a hold: a session that stops working still counts until it has been
+/// not-working for `holdSeconds`, so the short gaps between an agent's turns and tool calls do not flicker the count.
+struct WorkingEase {
+  private var lastWorkingMs: [String: Double] = [:]
+
+  mutating func summarize(sessions: [String: SessionFile], nowMs: Double, staleMs: Double, holdSeconds: Double) -> Counts {
+    let live = sessions.filter { nowMs - $0.value.updatedAt < staleMs }
+    lastWorkingMs = lastWorkingMs.filter { live[$0.key] != nil }
+    for (id, session) in live where session.working { lastWorkingMs[id] = nowMs }
+    return Counts(live: live.count, working: lastWorkingMs.values.filter { nowMs - $0 < holdSeconds * 1000 }.count)
+  }
 }
 
 /// Session files the plugin left behind (a session that crashed or was killed never writes its end).
