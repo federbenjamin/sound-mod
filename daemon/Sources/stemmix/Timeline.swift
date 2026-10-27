@@ -5,7 +5,8 @@ import Synchronization
 ///
 /// Single writer per field, so the IO thread never waits:
 /// - the IO thread writes the recording and moves `head`, `cursor` and `generation` (a jump bumps it);
-/// - the separation worker writes the stems ring and publishes the frontier for one generation.
+/// - the separation worker writes the stems ring and publishes the frontier for one generation;
+/// - the control loop sets `headFinal`.
 /// Separated audio below the frontier never changes until the next jump, so the IO thread reads it freely.
 final class Timeline: @unchecked Sendable {
   static let channels = 2
@@ -20,6 +21,8 @@ final class Timeline: @unchecked Sendable {
   let cursor = Atomic<Int>(0)
   /// Bumped on every jump of the cursor; separated audio from an older generation is stale.
   let generation = Atomic<Int>(0)
+  /// The music player's queue ended, so the head moves no further until a play: the worker separates up to it.
+  let headFinal = Atomic<Bool>(false)
   /// (generation << 48) | frontier: separated audio is final below `frontier` for that generation.
   private let frontierPacked = Atomic<Int>(0)
   private static let frontierBits = 48
@@ -142,11 +145,11 @@ final class Timeline: @unchecked Sendable {
 }
 
 /// The crossfade weight of frame `i` in a slice: a linear ramp up over the first `fade` frames (none for the
-/// first slice of a generation) and down over the last `fade`. Overlapping ramps of neighbouring slices sum to 1.
+/// first slice of a generation) and down over the last `fade`. Overlapping ramps of neighbouring slices sum to 1,
+/// also for a slice shorter than two fades (the queue's tail), where both ramps cover a frame: up + down - 1.
 func sliceWeight(_ i: Int, frames: Int, fade: Int, first: Bool) -> Float {
   guard fade > 0 else { return 1 }
-  var weight: Float = 1
-  if !first, i < fade { weight = Float(i) / Float(fade) }
-  if i >= frames - fade { weight = min(weight, Float(frames - i) / Float(fade)) }
-  return weight
+  let up: Float = first ? 1 : min(1, Float(i) / Float(fade))
+  let down = min(1, Float(frames - i) / Float(fade))
+  return max(0, up + down - 1)
 }

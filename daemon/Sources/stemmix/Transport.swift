@@ -42,10 +42,10 @@ func playerShouldPlay(playing: Bool, held: Bool, buffered: Int, target: Int) -> 
   return buffered < target
 }
 
-/// Whether stemmix plays as far as its commands and menu go: not once the player's queue ended (held while
-/// playing) and the separated audio has run out, so one press of play starts the player again.
-func effectivelyPlaying(intendsPlaying: Bool, held: Bool, separatedAhead: Int?, rate: Int) -> Bool {
-  guard intendsPlaying, held else { return intendsPlaying }
+/// Whether stemmix plays as far as its commands and menu go: not once the player's queue ended and the separated
+/// audio has run out, so one press of play starts the player again.
+func effectivelyPlaying(intendsPlaying: Bool, queueEnded: Bool, separatedAhead: Int?, rate: Int) -> Bool {
+  guard intendsPlaying, queueEnded else { return intendsPlaying }
   return (separatedAhead ?? 0) >= Int(Config.drainedSeconds * Double(rate))
 }
 

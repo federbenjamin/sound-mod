@@ -94,6 +94,22 @@ final class TimelineTests: XCTestCase {
     }
   }
 
+  /// A queue's tail can be shorter than two fades; a slice landing after it (new audio) must still sum to 1.
+  func testATailShorterThanTwoFadesCrossfadesToOneWithBothNeighbours() {
+    let fade = 50, full = 1_050
+    for tail in [51, 60, 75, 99, 100, 101, 400] {
+      // Slices start where the last one's frontier left off: start + frames - fade.
+      let tailStart = full - fade
+      let nextStart = tailStart + tail - fade
+      for p in tailStart..<(tailStart + tail) {
+        var sum = sliceWeight(p, frames: full, fade: fade, first: true)
+        sum += sliceWeight(p - tailStart, frames: tail, fade: fade, first: false)
+        if p >= nextStart { sum += sliceWeight(p - nextStart, frames: full, fade: fade, first: false) }
+        XCTAssertEqual(sum, 1, accuracy: 1e-5, "tail \(tail) frame \(p)")
+      }
+    }
+  }
+
   func testFirstSliceOfAGenerationHasNoRampIn() {
     XCTAssertEqual(sliceWeight(0, frames: 105, fade: 5, first: true), 1)
     XCTAssertEqual(sliceWeight(0, frames: 105, fade: 5, first: false), 0)
