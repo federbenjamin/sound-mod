@@ -182,7 +182,9 @@ final class Playback {
   private func commandContext() -> CommandContext {
     let head = timeline.head.load(ordering: .acquiring)
     let cursor = timeline.cursor.load(ordering: .acquiring)
-    return CommandContext(head: head, cursor: cursor, playing: intendsPlaying, marks: keptMarks(head: head), rate: timeline.rate, liveLag: player.shape.liveLag)
+    let frontier = timeline.frontier(for: timeline.generation.load(ordering: .acquiring))
+    let playing = effectivelyPlaying(intendsPlaying: intendsPlaying, held: playerHeld, separatedAhead: frontier.map { $0 - cursor }, rate: timeline.rate)
+    return CommandContext(head: head, cursor: cursor, playing: playing, marks: keptMarks(head: head), rate: timeline.rate, liveLag: player.shape.liveLag)
   }
 
   private func song(at cursor: Int) -> TrackMark? { marks.last { $0.frame <= cursor } }
