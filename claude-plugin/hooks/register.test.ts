@@ -52,21 +52,25 @@ test('a main-loop turn marks working; a subagent turn changes nothing', async ($
   await $.session.end({})
 })
 
-test('an ask verdict stops working until that tool call finishes', async ($, on) => {
+test('an ask verdict keeps working; a question to the person stops it until answered', async ($, on) => {
   const { lastSession } = engine(on)
+  let workingDuringQuestion: boolean | undefined
   on('turn.start', () => ({ turnId: 't1' }))
   on('tool.check', () => ({ decision: 'ask' }))
   on('classic.PermissionRequest', () => ({ decision: { behavior: 'allow' } }))
-  on('tool.call', () => ({ result: {} }))
+  on('tool.call', (_: any, e: any) => {
+    if (e.tool === 'AskUserQuestion') workingDuringQuestion = lastSession().working
+    return { result: {} }
+  })
   await $.session.start(START)
   await $.turn.start({ text: 'go' })
+
+  // In auto mode the classifier settles an ask with no dialog, and a plugin cannot tell the mode.
+  await $.tool.check({ tool: 'Bash', input: { command: 'ls' }, tool_use_id: 'tu-1', approver: 'person' })
   expect(lastSession().working).toBe(true)
 
-  // The ask itself is raised as a real main-loop call a person answers.
-  await $.tool.check({ tool: 'Bash', input: { command: 'ls' }, tool_use_id: 'tu-1', approver: 'person' })
-  expect(lastSession().working).toBe(false)
-
-  await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'tu-1' })
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [], tool_use_id: 'tu-2' })
+  expect(workingDuringQuestion).toBe(false)
   expect(lastSession().working).toBe(true)
   await $.session.end({})
 })
