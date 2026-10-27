@@ -2,8 +2,9 @@
 
 Every top-level agent pane herdr detects (Claude, Codex, ...) is one session; it counts as working while herdr
 reports `working`. `blocked` (a permission or question form on screen), `idle` and `done` do not. The panes of
-every enabled saved machine (`herdr machine list`) count too, asked through herdr's own forwarding; a machine
-that does not answer counts as no sessions. The file shape is contract/README.md in the stemmix repo. Runs on
+the enabled saved machines (`herdr machine list`) named in MACHINES_FILE count too, asked through herdr's own
+forwarding; with no such file no other machine is contacted, and a machine that does not answer counts as no
+sessions. The file shape is contract/README.md in the stemmix repo. Runs on
 macOS's own Python 3.9, standard library only.
 """
 import json
@@ -20,6 +21,7 @@ STATE_DIR = os.path.expanduser("~/.local/state/stemmix")
 SESSIONS_DIR = os.path.join(STATE_DIR, "sessions")
 PIDFILE = os.path.join(STATE_DIR, "herdr-bridge.pid")
 LOG_FILE = os.path.join(STATE_DIR, "herdr-bridge.log")
+MACHINES_FILE = os.path.join(STATE_DIR, "herdr-machines.json")  # a JSON list of saved-machine labels or ids to count
 SOCKET_PATH = os.environ.get("HERDR_SOCKET_PATH") or os.path.expanduser("~/.config/herdr/herdr.sock")
 HERDR = os.environ.get("HERDR_BIN_PATH", "herdr")
 PLUGIN_ID = "stemmix"
@@ -62,11 +64,33 @@ def merge_sessions(local, remotes, now_ms, stale_ms=REMOTE_STALE_MS):
     return merged
 
 
+def wanted_machines(path=MACHINES_FILE):
+    """The labels or ids listed in `path`; [] when the file is missing or is not a JSON list of strings."""
+    try:
+        with open(path) as f:
+            wanted = json.load(f)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(wanted, list):
+        return []
+    return [w for w in wanted if isinstance(w, str)]
+
+
+def opted_in(machines, wanted):
+    """The enabled saved machines whose id or label is in `wanted`, as [(id, label)]."""
+    return [(m["id"], m.get("label", m["id"])) for m in machines
+            if m.get("enabled") and (m["id"] in wanted or m.get("label") in wanted)]
+
+
 def saved_machines():
-    """[(id, label)] of the enabled saved machines, [] when there are none or herdr does not answer."""
+    """[(id, label)] of the enabled saved machines MACHINES_FILE names; [] without asking herdr when it names
+    none, and [] when herdr does not answer."""
+    wanted = wanted_machines()
+    if not wanted:
+        return []
     try:
         out = subprocess.run([HERDR, "machine", "list", "--json"], capture_output=True, text=True, timeout=10)
-        return [(m["id"], m.get("label", m["id"])) for m in json.loads(out.stdout) if m.get("enabled")]
+        return opted_in(json.loads(out.stdout), wanted)
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
         return []
 
