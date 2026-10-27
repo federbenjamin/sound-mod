@@ -206,6 +206,7 @@ final class PlaybackTests: XCTestCase {
     XCTAssertTrue(end.ended)
     XCTAssertTrue(playback.intendsPlaying, "the buffer plays out")
     XCTAssertTrue(playback.playerHeld)
+    XCTAssertTrue(playback.timeline.headFinal.load(ordering: .relaxed), "the worker separates up to the head")
     for now in stride(from: 30.0, through: 400, by: 10) { tick(playback, now: now) }
     XCTAssertEqual(sent, [], "neither the buffer rule nor the mismatch check starts the player again")
     playback.handle(.pause, source: "media-key", now: 401)
@@ -214,6 +215,7 @@ final class PlaybackTests: XCTestCase {
     playback.handle(.play, source: "media-key", now: 402)
     tick(playback, now: 402)
     XCTAssertFalse(playback.playerHeld)
+    XCTAssertFalse(playback.timeline.headFinal.load(ordering: .relaxed))
     XCTAssertEqual(sent, [.play])
   }
 

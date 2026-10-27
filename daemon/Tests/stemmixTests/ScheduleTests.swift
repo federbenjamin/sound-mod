@@ -29,6 +29,25 @@ final class ScheduleTests: XCTestCase {
     XCTAssertNotNil(nextJob(head: 1_105 + 150, cursor: 1_000, frontier: 1_000, playing: true, keptFrames: kept, shape: shape))
   }
 
+  func testAFinalHeadIsSeparatedToItsEndWithNoRightContext() throws {
+    func job(head: Int, frontier: Int, final: Bool) -> SeparationJob? {
+      nextJob(head: head, cursor: 1_000, frontier: frontier, playing: true, keptFrames: kept, shape: shape, headFinal: final)
+    }
+    XCTAssertNil(job(head: 1_200, frontier: 1_000, final: false), "95 past the slice is under minRight")
+    let full = try XCTUnwrap(job(head: 1_200, frontier: 1_000, final: true))
+    XCTAssertEqual(full.keepFrames, 105)
+    XCTAssertEqual(full.windowStart + shape.window, 1_200, "the window ends at the head")
+    XCTAssertEqual(full.keepStart, 1_000 - full.windowStart)
+
+    // The worker moves the frontier to keepFrames - fade past the slice; the tail ends with the head's fade-out.
+    var frontier = 1_000
+    while let next = job(head: 1_200, frontier: frontier, final: true) {
+      XCTAssertLessThanOrEqual(next.keepStart + next.keepFrames, shape.window)
+      frontier = next.sliceStart + next.keepFrames - shape.fade
+    }
+    XCTAssertEqual(frontier, 1_200 - shape.fade)
+  }
+
   func testRightContextGrowsToMaxRightAndNoFurther() {
     let sliceEnd = 1_105
     func windowEnd(available: Int) -> Int? {

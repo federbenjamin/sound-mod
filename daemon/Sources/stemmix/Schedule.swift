@@ -49,11 +49,19 @@ struct SeparationJob: Equatable {
 /// head. The right context grows with what is recorded, up to `maxRight`. While paused the lookahead is still
 /// separated, so play after a pause starts at once; but a cursor that far behind is moved up by the recording's
 /// overflow every cycle, and separating there would run the separator flat out on slices the cursor never plays.
-func nextJob(head: Int, cursor: Int, frontier: Int, playing: Bool, keptFrames: Int, shape: WindowShape) -> SeparationJob? {
+/// `headFinal` (the player's queue ended, so no more audio comes): the last slices end at the head with no right
+/// context, down to one that keeps only its fade-out, so the song plays to its end.
+func nextJob(head: Int, cursor: Int, frontier: Int, playing: Bool, keptFrames: Int, shape: WindowShape, headFinal: Bool = false) -> SeparationJob? {
   guard playing || head - cursor < keptFrames, frontier < cursor + shape.lookahead else { return nil }
   let keep = shape.hop + shape.fade
   let sliceEnd = frontier + keep
   let available = head - sliceEnd
+  if available < shape.minRight, headFinal {
+    let remaining = head - frontier
+    guard remaining > shape.fade else { return nil }
+    let windowStart = head - shape.window
+    return SeparationJob(sliceStart: frontier, windowStart: windowStart, keepStart: frontier - windowStart, keepFrames: min(keep, remaining))
+  }
   guard available >= shape.minRight else { return nil }
   let windowEnd = sliceEnd + min(available, shape.maxRight)
   let windowStart = windowEnd - shape.window

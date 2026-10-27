@@ -95,7 +95,7 @@ final class SeparationWorker: @unchecked Sendable {
         timeline.publishFrontier(frontier, generation: generation)
       }
       let head = timeline.head.load(ordering: .acquiring)
-      guard let job = nextJob(head: head, cursor: cursor, frontier: frontier, playing: isPlaying(), keptFrames: keptFrames, shape: shape) else {
+      guard let job = nextJob(head: head, cursor: cursor, frontier: frontier, playing: isPlaying(), keptFrames: keptFrames, shape: shape, headFinal: timeline.headFinal.load(ordering: .relaxed)) else {
         usleep(20_000)
         continue
       }
@@ -120,7 +120,8 @@ final class SeparationWorker: @unchecked Sendable {
       guard timeline.generation.load(ordering: .acquiring) == generation else { continue }
       timeline.writeSlice(at: job.sliceStart, frames: job.keepFrames, fade: shape.fade, first: first, from: slice)
       first = false
-      frontier = job.sliceStart + shape.hop
+      // A slice's last `fade` frames wait for the next slice's fade-in: hop for a full slice, less for the tail.
+      frontier = job.sliceStart + job.keepFrames - shape.fade
       timeline.publishFrontier(frontier, generation: generation)
     }
   }

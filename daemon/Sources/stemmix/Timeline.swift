@@ -5,7 +5,8 @@ import Synchronization
 ///
 /// Single writer per field, so the IO thread never waits:
 /// - the IO thread writes the recording and moves `head`, `cursor` and `generation` (a jump bumps it);
-/// - the separation worker writes the stems ring and publishes the frontier for one generation.
+/// - the separation worker writes the stems ring and publishes the frontier for one generation;
+/// - the control loop sets `headFinal`.
 /// Separated audio below the frontier never changes until the next jump, so the IO thread reads it freely.
 final class Timeline: @unchecked Sendable {
   static let channels = 2
@@ -20,6 +21,8 @@ final class Timeline: @unchecked Sendable {
   let cursor = Atomic<Int>(0)
   /// Bumped on every jump of the cursor; separated audio from an older generation is stale.
   let generation = Atomic<Int>(0)
+  /// The music player's queue ended, so the head moves no further until a play: the worker separates up to it.
+  let headFinal = Atomic<Bool>(false)
   /// (generation << 48) | frontier: separated audio is final below `frontier` for that generation.
   private let frontierPacked = Atomic<Int>(0)
   private static let frontierBits = 48

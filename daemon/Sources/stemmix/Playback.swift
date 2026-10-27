@@ -12,10 +12,10 @@ final class Playback {
   private(set) var marks: [TrackMark] = []
   /// The last play or pause this playback sent; the IO thread applies it a cycle later, or never when its
   /// proc is dead. The truth for toggle and Now Playing.
-  private(set) var intendsPlaying: Bool
+  private(set) var intendsPlaying: Bool { didSet { publishQueueEnded() } }
   /// A pause made in the music player itself: the player stays paused, with no refill, until a play from any
   /// source. A pause from the keys, the menu or `--control` still fills the buffer.
-  private(set) var playerHeld: Bool
+  private(set) var playerHeld: Bool { didSet { publishQueueEnded() } }
   /// The player state the buffer rule last asked for; cleared when the player moves by itself. Without it a player
   /// that never takes the event (a denied permission, nothing queued) would be asked again every tick.
   private var askedPlayerPlaying: Bool?
@@ -49,6 +49,7 @@ final class Playback {
       player.send(.seek(liveEdge(head: head, liveLag: player.shape.liveLag)))
       Log.line("separator first-ready: cursor to the live edge (recorded \(String(format: "%.2fs", Double(head) / Double(timeline.rate))))")
     }
+    publishQueueEnded()
   }
 
   func start() { worker.start() }
@@ -210,6 +211,9 @@ final class Playback {
     guard let firstKept = marks.firstIndex(where: { $0.frame >= oldest }) else { return marks.suffix(1) }
     return Array(marks[max(firstKept - 1, 0)...])
   }
+
+  /// Held while stemmix plays is the player's queue having ended (`PlayerFollower.Reaction.ended`).
+  private func publishQueueEnded() { timeline.headFinal.store(intendsPlaying && playerHeld, ordering: .relaxed) }
 
   private func send(_ action: TransportAction) {
     switch action {
