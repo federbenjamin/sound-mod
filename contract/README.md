@@ -6,7 +6,7 @@ A session source writes, the daemon reads. The two sources, `claude-plugin/` and
 | --- | --- | --- | --- |
 | `sessions/<session id>.json` | `{ "working": <bool>, "updatedAt": <ms since epoch> }` | the session source on every state change and every 2 s | the daemon every tick |
 
-A session file older than 6 s is dead. `working` is true while the session's main turn runs and no dialog waits on the person.
+A session file older than 6 s is dead. `working` is true while the session's main turn runs and no question waits on the person.
 
 `session.json` in this folder is the fixture the daemon's and both sources' tests read. The settings (`config.json` beside the sessions) are the daemon's own, written from its menu.
 

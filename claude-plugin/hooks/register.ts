@@ -68,18 +68,8 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // A permission dialog: an `ask` verdict on a real main-loop call that a person (not the host's classifier) answers.
-  on('tool.check', async ($, e, next) => {
-    const verdict = await next(e)
-    if (e.agentId === undefined && e.tool_use_id !== undefined && e.approver === 'person' && verdict.decision === 'ask') {
-      await ready($, reporter)
-      waiting.add(e.tool_use_id)
-      await writeSession($, reporter.home, reporter.isWorking())
-    }
-    return verdict
-  })
-
-  // A question or a plan put to the person waits for as long as the call runs; any call's end clears its ask.
+  // A question or a plan put to the person waits for as long as the call runs. A permission ask does not count:
+  // in auto mode the classifier settles it with no dialog, and a plugin cannot read the session's mode.
   on('tool.call', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     await ready($, reporter)
