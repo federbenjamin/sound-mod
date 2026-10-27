@@ -127,6 +127,7 @@ final class PlaybackTests: XCTestCase {
     XCTAssertEqual(post(playback, .paused, now: 1).action, .pause)
     XCTAssertFalse(playback.intendsPlaying)
     XCTAssertTrue(playback.playerHeld)
+    XCTAssertFalse(playback.timeline.headFinal.load(ordering: .relaxed), "a pause is not the queue's end")
     tick(playback, now: 2)
     XCTAssertEqual(sent, [], "a held pause gets no refill")
     playback.handle(.toggle, source: "media-key", now: 3)
@@ -215,8 +216,10 @@ final class PlaybackTests: XCTestCase {
     playback.handle(.play, source: "media-key", now: 402)
     tick(playback, now: 402)
     XCTAssertFalse(playback.playerHeld)
-    XCTAssertFalse(playback.timeline.headFinal.load(ordering: .relaxed))
     XCTAssertEqual(sent, [.play])
+    XCTAssertTrue(playback.timeline.headFinal.load(ordering: .relaxed), "no new audio until the player plays")
+    post(playback, .playing, now: 402.3, track: "B", position: 0)
+    XCTAssertFalse(playback.timeline.headFinal.load(ordering: .relaxed))
   }
 
   func testOnceTheBufferRunsOutAfterTheQueueEndedOnePressOfPlayPauseStartsThePlayer() {

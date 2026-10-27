@@ -145,11 +145,11 @@ final class Timeline: @unchecked Sendable {
 }
 
 /// The crossfade weight of frame `i` in a slice: a linear ramp up over the first `fade` frames (none for the
-/// first slice of a generation) and down over the last `fade`. Overlapping ramps of neighbouring slices sum to 1.
+/// first slice of a generation) and down over the last `fade`. Overlapping ramps of neighbouring slices sum to 1,
+/// also for a slice shorter than two fades (the queue's tail), where both ramps cover a frame: up + down - 1.
 func sliceWeight(_ i: Int, frames: Int, fade: Int, first: Bool) -> Float {
   guard fade > 0 else { return 1 }
-  var weight: Float = 1
-  if !first, i < fade { weight = Float(i) / Float(fade) }
-  if i >= frames - fade { weight = min(weight, Float(frames - i) / Float(fade)) }
-  return weight
+  let up: Float = first ? 1 : min(1, Float(i) / Float(fade))
+  let down = min(1, Float(frames - i) / Float(fade))
+  return max(0, up + down - 1)
 }

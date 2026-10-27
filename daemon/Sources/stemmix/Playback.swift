@@ -12,10 +12,13 @@ final class Playback {
   private(set) var marks: [TrackMark] = []
   /// The last play or pause this playback sent; the IO thread applies it a cycle later, or never when its
   /// proc is dead. The truth for toggle and Now Playing.
-  private(set) var intendsPlaying: Bool { didSet { publishQueueEnded() } }
+  private(set) var intendsPlaying: Bool
   /// A pause made in the music player itself: the player stays paused, with no refill, until a play from any
   /// source. A pause from the keys, the menu or `--control` still fills the buffer.
-  private(set) var playerHeld: Bool { didSet { publishQueueEnded() } }
+  private(set) var playerHeld: Bool
+  /// The player ended its queue by itself; cleared when it plays again. No more audio comes meanwhile, so the
+  /// worker separates up to the head (`Timeline.headFinal`).
+  private var queueEnded = false { didSet { timeline.headFinal.store(queueEnded, ordering: .relaxed) } }
   /// The player state the buffer rule last asked for; cleared when the player moves by itself. Without it a player
   /// that never takes the event (a denied permission, nothing queued) would be asked again every tick.
   private var askedPlayerPlaying: Bool?
@@ -49,7 +52,6 @@ final class Playback {
       player.send(.seek(liveEdge(head: head, liveLag: player.shape.liveLag)))
       Log.line("separator first-ready: cursor to the live edge (recorded \(String(format: "%.2fs", Double(head) / Double(timeline.rate))))")
     }
-    publishQueueEnded()
   }
 
   func start() { worker.start() }
@@ -100,6 +102,9 @@ final class Playback {
     if reaction.ended {
       askedPlayerPlaying = nil
       playerHeld = true
+      queueEnded = true
+    } else if reaction.startedPlaying {
+      queueEnded = false
     }
     send(reaction.action)
     if let frame = reaction.seek { player.send(.seek(frame)) }
@@ -184,7 +189,7 @@ final class Playback {
     let head = timeline.head.load(ordering: .acquiring)
     let cursor = timeline.cursor.load(ordering: .acquiring)
     let frontier = timeline.frontier(for: timeline.generation.load(ordering: .acquiring))
-    let playing = effectivelyPlaying(intendsPlaying: intendsPlaying, held: playerHeld, separatedAhead: frontier.map { $0 - cursor }, rate: timeline.rate)
+    let playing = effectivelyPlaying(intendsPlaying: intendsPlaying, queueEnded: queueEnded, separatedAhead: frontier.map { $0 - cursor }, rate: timeline.rate)
     return CommandContext(head: head, cursor: cursor, playing: playing, marks: keptMarks(head: head), rate: timeline.rate, liveLag: player.shape.liveLag)
   }
 
@@ -211,9 +216,6 @@ final class Playback {
     guard let firstKept = marks.firstIndex(where: { $0.frame >= oldest }) else { return marks.suffix(1) }
     return Array(marks[max(firstKept - 1, 0)...])
   }
-
-  /// Held while stemmix plays is the player's queue having ended (`PlayerFollower.Reaction.ended`).
-  private func publishQueueEnded() { timeline.headFinal.store(intendsPlaying && playerHeld, ordering: .relaxed) }
 
   private func send(_ action: TransportAction) {
     switch action {
