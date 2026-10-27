@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 import stemmix_herdr as bridge
 
@@ -52,6 +53,32 @@ class BridgeTests(unittest.TestCase):
         merged = bridge.merge_sessions(local, {"13be883b": (remote, 9_000), "stale": ({"zzzz": True}, 0)}, now_ms=10_000, stale_ms=5_000)
         self.assertEqual(merged, {**remote, **local})
         self.assertNotIn("zzzz", merged)
+
+    def test_only_listed_enabled_machines_are_polled_and_no_list_polls_none(self):
+        machines = [
+            {"id": "4ed4d96b", "label": "M5 Pro", "enabled": True},
+            {"id": "13be883b", "label": "M1 Pro", "enabled": True},
+            {"id": "aaaa1111", "label": "Off box", "enabled": False},
+        ]
+
+        self.assertEqual(bridge.opted_in(machines, ["M5 Pro", "aaaa1111"]), [("4ed4d96b", "M5 Pro")])
+        self.assertEqual(bridge.opted_in(machines, ["13be883b"]), [("13be883b", "M1 Pro")])
+        self.assertEqual(bridge.opted_in(machines, []), [])
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "herdr-machines.json")
+            self.assertEqual(bridge.wanted_machines(path), [])
+            for bad in ["not json", '{"M5 Pro": true}']:
+                with open(path, "w") as f:
+                    f.write(bad)
+                self.assertEqual(bridge.wanted_machines(path), [])
+            with open(path, "w") as f:
+                json.dump(["M5 Pro", 3], f)
+            self.assertEqual(bridge.wanted_machines(path), ["M5 Pro"])
+
+    def test_no_list_never_runs_herdr(self):
+        with mock.patch.object(bridge, "wanted_machines", return_value=[]), \
+                mock.patch.object(bridge.subprocess, "run", side_effect=AssertionError("herdr was run")):
+            self.assertEqual(bridge.saved_machines(), [])
 
 
 if __name__ == "__main__":
