@@ -86,6 +86,8 @@ enum Config {
   // While stemmix is paused the player keeps playing, muted, until this much is buffered ahead of the cursor. Below
   // the recording minus its guard, or the cursor would be moved up past the oldest of it.
   static let bufferAheadSeconds = 300.0
+  // Less separated audio than this ahead of the cursor after the player's queue ended is nothing left to play.
+  static let drainedSeconds = 0.1
 
   static let controlNotification = Notification.Name("com.benjaminfeder.stemmix.control")
 

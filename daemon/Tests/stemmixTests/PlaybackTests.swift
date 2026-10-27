@@ -217,6 +217,25 @@ final class PlaybackTests: XCTestCase {
     XCTAssertEqual(sent, [.play])
   }
 
+  func testOnceTheBufferRunsOutAfterTheQueueEndedOnePressOfPlayPauseStartsThePlayer() {
+    let playback = makePlayback()
+    post(playback, .playing, now: 0, position: 0)
+    record(playback, seconds: 5)
+    let timeline = playback.timeline
+    let generation = timeline.generation.load(ordering: .relaxed)
+    let cursor = timeline.cursor.load(ordering: .relaxed)
+    timeline.publishFrontier(cursor + 2_000, generation: generation)
+    XCTAssertTrue(post(playback, .paused, now: 99, position: 99).ended)
+    XCTAssertTrue(playback.snapshot().playing, "2 s separated ahead still plays out")
+
+    timeline.publishFrontier(cursor + 50, generation: generation)
+    XCTAssertFalse(playback.snapshot().playing, "50 ms is nothing left: the menu shows Play")
+    XCTAssertEqual(playback.handle(.toggle, source: "media-key", now: 120), .play)
+    tick(playback, now: 120)
+    XCTAssertFalse(playback.playerHeld)
+    XCTAssertEqual(sent, [.play])
+  }
+
   func testAWrongBeliefIsCorrectedFromTheOutputAndTheRuleAsksAgain() {
     let playback = makePlayback()
     // The attach read the player as playing, but it is paused and posts nothing.
