@@ -15,15 +15,17 @@ A song from Spotify or Apple Music plays as 4 instrument stems: drums, bass, oth
 Needs macOS, [`uv`](https://docs.astral.sh/uv/getting-started/installation/), and Xcode's command line tools. An Apple Development signing identity in the keychain keeps the audio permission across rebuilds; without one the daemon is signed ad hoc and the permission below has to be given again after every rebuild.
 
 ```
-git clone https://github.com/federbenjamin/sound-mod && cd sound-mod && ./install.sh
+git clone https://github.com/federbenjamin/sound-mod && cd sound-mod && ./install.sh herdr   # or: ./install.sh claude
 ```
 
 Builds the separator's Python environment in `~/.local/share/stemmix/venv` and runs its self-test (the first run downloads the model weights to `~/.cache/demucs-mlx`), builds and signs the daemon as `~/Applications/Stemmix.app`, and installs the launchd agent, which starts it now and at every login.
 
-Then install one session source:
+Then it installs the one session source you name and removes the other (`scripts/session-source.sh`):
 
-- Claude Code: add this repo as a plugin marketplace and enable `stemmix@sound-mod` (`/plugin marketplace add <path or owner/repo>`, then `/plugin install stemmix@sound-mod`).
-- herdr: `herdr plugin link <this repo>/herdr-plugin` (or `herdr plugin install <owner>/sound-mod/herdr-plugin` from GitHub). herdr starts it with its server; to start it now, `herdr plugin action invoke restart --plugin stemmix`. Needs macOS's own `/usr/bin/python3` (Xcode Command Line Tools).
+- `herdr`: links `herdr-plugin/` into herdr and restarts its bridge. Needs macOS's own `/usr/bin/python3` (Xcode Command Line Tools).
+- `claude`: adds this repo as a Claude Code plugin marketplace and installs `stemmix@sound-mod`; run `/reload-plugins` in open sessions.
+
+Without a name it keeps the one already installed, and asks when neither or both are.
 
 Before the daemon first taps the player, macOS needs Stemmix allowed under System Settings > Privacy & Security > Screen & System Audio Recording > **System Audio Recording Only**: add `~/Applications/Stemmix.app` there with the + button. The daemon never taps before it is allowed, so no prompt appears on its own, and nothing else can raise one for it (not SSH, not a terminal-launched binary: TCC attributes those to the terminal).
 
@@ -79,7 +81,7 @@ Three parts, and you pick the third:
   - **The Claude Code plugin** (`claude-plugin/`): each Claude Code session reports whether its main turn is running and not waiting on you (a permission dialog, a question, a plan to approve). Counts Claude Code sessions in any terminal.
   - **The herdr plugin** (`herdr-plugin/`): reports every top-level agent pane in [herdr](https://herdr.dev) (Claude Code, Codex, and any agent herdr detects), on this Mac and on every saved machine herdr can reach (`herdr machine list`); a pane counts while herdr shows it `working`, and not while it is `blocked` on you, `idle` or `done`. A machine that does not answer counts as no sessions. Counts only sessions running inside herdr.
 
-  Install one. Both write the same session files, keyed by the agent's session id where herdr knows it, so a Claude session reported by both is still one session.
+  `install.sh` installs one and removes the other: with both, a Claude session in herdr is reported twice and the two can disagree.
 
 The daemon and the session sources meet in `~/.local/state/stemmix/`; the daemon and the separator meet on a pipe. Both shapes are in `contract/README.md`. The design and its trade-offs: `docs/design/stem-player.md`. The picture at the top is drawn by `docs/media/hero.sh` from four stem recordings.
 
