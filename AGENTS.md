@@ -1,5 +1,7 @@
 # sound-mod
 
+sound-mod is the repository for stemmix, a macOS tool that plays the song from Spotify or Apple Music as four stems (drums, bass, other, vocals) and brings them in as more Claude Code sessions or herdr agent panes are working. It is for people who keep several agent sessions going at once and want to hear that load. The repo holds a Swift daemon that taps system audio and plays the stems, a Python separator that splits the song, and two session sources, a Claude Code plugin and a herdr plugin.
+
 <!-- >>> git-workflow (generated block; do not edit by hand) -->
 ## Git workflow
 
@@ -21,4 +23,4 @@
   - `claude-plugin/`: the Claude Code hooks module; tests in `claude-plugin/hooks/*.test.ts` run with `claude plugin test claude-plugin`.
   - `herdr-plugin/`: the herdr plugin, a bridge from herdr's agent states (system Python 3.9, standard library only); tests run with `/usr/bin/python3 -m unittest discover -s herdr-plugin`.
 - `contract/`: the state-file shapes, the separator pipe protocol, and the fixtures every side decodes.
-- `install.sh`: the one install command (README §Install).
+- `install.sh`: the one install command (README §Install). `scripts/session-source.sh` installs one session source and removes the other; tests in `scripts/test_session_source.py` run with `/usr/bin/python3 -m unittest discover -s scripts` against fake `claude` and `herdr` commands.

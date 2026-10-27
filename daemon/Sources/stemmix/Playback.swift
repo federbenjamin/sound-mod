@@ -16,6 +16,9 @@ final class Playback {
   /// A pause made in the music player itself: the player stays paused, with no refill, until a play from any
   /// source. A pause from the keys, the menu or `--control` still fills the buffer.
   private(set) var playerHeld: Bool
+  /// The player ended its queue by itself; cleared when it plays again. No more audio comes meanwhile, so the
+  /// worker separates up to the head (`Timeline.headFinal`).
+  private var queueEnded = false { didSet { timeline.headFinal.store(queueEnded, ordering: .relaxed) } }
   /// The player state the buffer rule last asked for; cleared when the player moves by itself. Without it a player
   /// that never takes the event (a denied permission, nothing queued) would be asked again every tick.
   private var askedPlayerPlaying: Bool?
@@ -99,6 +102,9 @@ final class Playback {
     if reaction.ended {
       askedPlayerPlaying = nil
       playerHeld = true
+      queueEnded = true
+    } else if reaction.startedPlaying {
+      queueEnded = false
     }
     send(reaction.action)
     if let frame = reaction.seek { player.send(.seek(frame)) }
@@ -182,7 +188,9 @@ final class Playback {
   private func commandContext() -> CommandContext {
     let head = timeline.head.load(ordering: .acquiring)
     let cursor = timeline.cursor.load(ordering: .acquiring)
-    return CommandContext(head: head, cursor: cursor, playing: intendsPlaying, marks: keptMarks(head: head), rate: timeline.rate, liveLag: player.shape.liveLag)
+    let frontier = timeline.frontier(for: timeline.generation.load(ordering: .acquiring))
+    let playing = effectivelyPlaying(intendsPlaying: intendsPlaying, queueEnded: queueEnded, separatedAhead: frontier.map { $0 - cursor }, rate: timeline.rate)
+    return CommandContext(head: head, cursor: cursor, playing: playing, marks: keptMarks(head: head), rate: timeline.rate, liveLag: player.shape.liveLag)
   }
 
   private func song(at cursor: Int) -> TrackMark? { marks.last { $0.frame <= cursor } }

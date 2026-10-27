@@ -1,5 +1,5 @@
 {
   "name": "stemmix",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Writes whether this session is working so the stemmix daemon can play one more instrument stem for each working session."
 }

@@ -127,6 +127,7 @@ final class PlaybackTests: XCTestCase {
     XCTAssertEqual(post(playback, .paused, now: 1).action, .pause)
     XCTAssertFalse(playback.intendsPlaying)
     XCTAssertTrue(playback.playerHeld)
+    XCTAssertFalse(playback.timeline.headFinal.load(ordering: .relaxed), "a pause is not the queue's end")
     tick(playback, now: 2)
     XCTAssertEqual(sent, [], "a held pause gets no refill")
     playback.handle(.toggle, source: "media-key", now: 3)
@@ -206,6 +207,7 @@ final class PlaybackTests: XCTestCase {
     XCTAssertTrue(end.ended)
     XCTAssertTrue(playback.intendsPlaying, "the buffer plays out")
     XCTAssertTrue(playback.playerHeld)
+    XCTAssertTrue(playback.timeline.headFinal.load(ordering: .relaxed), "the worker separates up to the head")
     for now in stride(from: 30.0, through: 400, by: 10) { tick(playback, now: now) }
     XCTAssertEqual(sent, [], "neither the buffer rule nor the mismatch check starts the player again")
     playback.handle(.pause, source: "media-key", now: 401)
@@ -213,6 +215,28 @@ final class PlaybackTests: XCTestCase {
     XCTAssertEqual(sent, [], "a pause after the end asks nothing either")
     playback.handle(.play, source: "media-key", now: 402)
     tick(playback, now: 402)
+    XCTAssertFalse(playback.playerHeld)
+    XCTAssertEqual(sent, [.play])
+    XCTAssertTrue(playback.timeline.headFinal.load(ordering: .relaxed), "no new audio until the player plays")
+    post(playback, .playing, now: 402.3, track: "B", position: 0)
+    XCTAssertFalse(playback.timeline.headFinal.load(ordering: .relaxed))
+  }
+
+  func testOnceTheBufferRunsOutAfterTheQueueEndedOnePressOfPlayPauseStartsThePlayer() {
+    let playback = makePlayback()
+    post(playback, .playing, now: 0, position: 0)
+    record(playback, seconds: 5)
+    let timeline = playback.timeline
+    let generation = timeline.generation.load(ordering: .relaxed)
+    let cursor = timeline.cursor.load(ordering: .relaxed)
+    timeline.publishFrontier(cursor + 2_000, generation: generation)
+    XCTAssertTrue(post(playback, .paused, now: 99, position: 99).ended)
+    XCTAssertTrue(playback.snapshot().playing, "2 s separated ahead still plays out")
+
+    timeline.publishFrontier(cursor + 50, generation: generation)
+    XCTAssertFalse(playback.snapshot().playing, "50 ms is nothing left: the menu shows Play")
+    XCTAssertEqual(playback.handle(.toggle, source: "media-key", now: 120), .play)
+    tick(playback, now: 120)
     XCTAssertFalse(playback.playerHeld)
     XCTAssertEqual(sent, [.play])
   }

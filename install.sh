@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the separator environment, builds and signs the stemmix daemon, installs it as a launchd user agent,
-# and checks the plugin is registered.
+# and installs one session source. Usage: ./install.sh [herdr|claude]
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -57,14 +57,5 @@ done
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 echo "daemon: running as $LABEL (log: $STATE/stemmix.log)"
 
-if grep -q '"stemmix@sound-mod": true' "$HOME/.claude/settings.json" 2>/dev/null; then
-  echo "plugin: registered; run /reload-plugins in open sessions"
-else
-  cat <<EOF
-plugin: not registered. In ~/.claude/settings.json add
-  extraKnownMarketplaces.sound-mod = { "source": { "source": "directory", "path": "$PWD" } }
-  enabledPlugins["stemmix@sound-mod"] = true
-then run /reload-plugins.
-EOF
-fi
+scripts/session-source.sh "${1:-}"
 echo "first run: allow Stemmix under System Settings > Privacy & Security > Screen & System Audio Recording > System Audio Recording Only. The daemon never taps without it."

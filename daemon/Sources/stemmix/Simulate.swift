@@ -17,7 +17,8 @@ struct SimulationScript: Decodable {
   let seconds: Double
   let events: [Event]
   /// A simulated music player plays the recording: it reads on only while playing, feeds the tap silence while
-  /// paused, and posts a state event at each play state change. Stemmix's play, pause and next reach it
+  /// paused, and posts a state event at each play state change. At the recording's end its queue ends: it stops
+  /// and posts Stopped, as Music does. Stemmix's play, pause and next reach it
   /// `skipDelay` seconds later (default 0.1). With `songs` (song starts, in seconds) it posts a track change at
   /// each start and a next makes it jump to the next start; without them the recording is one stream and next is
   /// never sent.
@@ -66,6 +67,7 @@ func runSimulate(_ arguments: [String]) -> Int32 {
   var stateAt: (playing: Bool, frame: Int)?
   var announcedSong = -1
   var announcedPlaying: Bool?
+  var queueEnded = false
   func time() -> Double { Double(frame) / rate }
   let playback = Playback(rate: script.rate, playerPlaying: playerPlaying, bufferAheadSeconds: script.bufferSeconds ?? Config.bufferAheadSeconds) { command, done in
     print(String(format: "%.2fs frame=%d player-control command=%@", time(), frame, command.rawValue))
@@ -135,18 +137,25 @@ func runSimulate(_ arguments: [String]) -> Int32 {
       stateAt = nil
       setPlayerPlaying(state.playing)
     }
+    if playerPlaying, readFrame >= inputFrames {
+      queueEnded = true
+      setPlayerPlaying(false)
+      print(String(format: "%.2fs frame=%d player queue ended input=%d", t, frame, readFrame))
+    } else if playerPlaying {
+      queueEnded = false
+    }
     let index = songStarts.lastIndex(where: { $0 <= readFrame })
     if (index ?? -1) != announcedSong || playerPlaying != announcedPlaying {
       announcedSong = index ?? -1
       announcedPlaying = playerPlaying
       let end = index.map { $0 + 1 < songStarts.count ? songStarts[$0 + 1] : inputFrames }
       let reaction = playback.handle(PlayerEvent(
-        state: playerPlaying ? .playing : .paused, trackID: index.map { "song\($0)" }, title: index.map { "Song \($0)" } ?? "",
+        state: playerPlaying ? .playing : queueEnded ? .stopped : .paused, trackID: index.map { "song\($0)" }, title: index.map { "Song \($0)" } ?? "",
         artist: "simulate", durationSeconds: index.map { Double(end! - songStarts[$0]) / rate },
         positionSeconds: Double(readFrame - (index.map { songStarts[$0] } ?? 0)) / rate), now: t)
       print(String(
         format: "%.2fs frame=%d player-event song=%@ state=%@ input=%d action=%@ seek=%@", t, frame, index.map { String($0) } ?? "-",
-        playerPlaying ? "playing" : "paused", readFrame, "\(reaction.action)", reaction.seek.map { String($0) } ?? "-"))
+        playerPlaying ? "playing" : queueEnded ? "stopped" : "paused", readFrame, "\(reaction.action)", reaction.seek.map { String($0) } ?? "-"))
     }
     playback.tick(now: t, playerOutputting: playerPlaying)
     for i in 0..<block * Timeline.channels {

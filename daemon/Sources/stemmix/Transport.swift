@@ -42,6 +42,13 @@ func playerShouldPlay(playing: Bool, held: Bool, buffered: Int, target: Int) -> 
   return buffered < target
 }
 
+/// Whether stemmix plays as far as its commands and menu go: not once the player's queue ended and the separated
+/// audio has run out, so one press of play starts the player again.
+func effectivelyPlaying(intendsPlaying: Bool, queueEnded: Bool, separatedAhead: Int?, rate: Int) -> Bool {
+  guard intendsPlaying, queueEnded else { return intendsPlaying }
+  return (separatedAhead ?? 0) >= Int(Config.drainedSeconds * Double(rate))
+}
+
 /// Stemmix's play state and hold at an attach. A re-attach inside one daemon run (a new output device, a new
 /// player process, a dead tap) keeps the last attach's; else the player's state decides: a player paused then
 /// was paused by the user. The player keeps playing behind a paused stemmix, so its state alone would start a

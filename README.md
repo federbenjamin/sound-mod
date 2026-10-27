@@ -15,15 +15,17 @@ A song from Spotify or Apple Music plays as 4 instrument stems: drums, bass, oth
 Needs macOS, [`uv`](https://docs.astral.sh/uv/getting-started/installation/), and Xcode's command line tools. An Apple Development signing identity in the keychain keeps the audio permission across rebuilds; without one the daemon is signed ad hoc and the permission below has to be given again after every rebuild.
 
 ```
-git clone https://github.com/federbenjamin/sound-mod && cd sound-mod && ./install.sh
+git clone https://github.com/federbenjamin/sound-mod && cd sound-mod && ./install.sh herdr   # or: ./install.sh claude
 ```
 
 Builds the separator's Python environment in `~/.local/share/stemmix/venv` and runs its self-test (the first run downloads the model weights to `~/.cache/demucs-mlx`), builds and signs the daemon as `~/Applications/Stemmix.app`, and installs the launchd agent, which starts it now and at every login.
 
-Then install one session source:
+Then it installs the one session source you name and removes the other (`scripts/session-source.sh`):
 
-- Claude Code: add this repo as a plugin marketplace and enable `stemmix@sound-mod` (`/plugin marketplace add <path or owner/repo>`, then `/plugin install stemmix@sound-mod`).
-- herdr: `herdr plugin link <this repo>/herdr-plugin` (or `herdr plugin install <owner>/sound-mod/herdr-plugin` from GitHub). herdr starts it with its server; to start it now, `herdr plugin action invoke restart --plugin stemmix`. Needs macOS's own `/usr/bin/python3` (Xcode Command Line Tools).
+- `herdr`: links `herdr-plugin/` into herdr and restarts its bridge. Needs macOS's own `/usr/bin/python3` (Xcode Command Line Tools).
+- `claude`: adds this repo as a Claude Code plugin marketplace and installs `stemmix@sound-mod`; run `/reload-plugins` in open sessions.
+
+Without a name it keeps the one already installed, and asks when neither or both are.
 
 Before the daemon first taps the player, macOS needs Stemmix allowed under System Settings > Privacy & Security > Screen & System Audio Recording > **System Audio Recording Only**: add `~/Applications/Stemmix.app` there with the + button. The daemon never taps before it is allowed, so no prompt appears on its own, and nothing else can raise one for it (not SSH, not a terminal-launched binary: TCC attributes those to the terminal).
 
@@ -76,17 +78,17 @@ Three parts, and you pick the third:
 - **The daemon** (`daemon/`, Swift, a launchd user agent `com.benjaminfeder.stemmix`): taps the player's audio with a Core Audio process tap (the player is muted at the source while tapped), records it into memory, and plays it back as stems from a play cursor of its own. Pause stops the cursor at once while the player keeps filling the recording up to 5 minutes ahead, so play resumes where you paused; next and previous move between songs in the buffer. Switched off, the tap is released and the player sounds normal.
 - **The separator** (`separator/`, Python): HTDemucs through `demucs-mlx` on the GPU. The daemon starts it while attached and sends it one 7.8 s window a second over a pipe; playback starts once 5 s of stems lie ahead, so the stems play about 8.3 s behind the music.
 - **A session source**, one of:
-  - **The Claude Code plugin** (`claude-plugin/`): each Claude Code session reports whether its main turn is running and not waiting on you (a permission dialog, a question, a plan to approve). Counts Claude Code sessions in any terminal.
+  - **The Claude Code plugin** (`claude-plugin/`): each Claude Code session reports whether its main turn is running and not waiting on you (a question, a plan to approve). A permission prompt still counts as working: in auto mode the classifier answers it with no prompt, and the plugin cannot see the mode. Counts Claude Code sessions in any terminal.
   - **The herdr plugin** (`herdr-plugin/`): reports every top-level agent pane in [herdr](https://herdr.dev) (Claude Code, Codex, and any agent herdr detects), on this Mac and on the saved machines (`herdr machine list`) named in `~/.local/state/stemmix/herdr-machines.json`, a JSON list of labels or ids such as `["M5 Pro"]`; a pane counts while herdr shows it `working`, and not while it is `blocked` on you, `idle` or `done`. Without that file the plugin contacts no other machine. A listed machine is asked every 2 s over SSH; one that does not answer counts as no sessions. Edits to the list apply within 30 s. Counts only sessions running inside herdr.
 
-  Install one. Both write the same session files, keyed by the agent's session id where herdr knows it, so a Claude session reported by both is still one session.
+  `install.sh` installs one and removes the other: with both, a Claude session in herdr is reported twice and the two can disagree.
 
 The daemon and the session sources meet in `~/.local/state/stemmix/`; the daemon and the separator meet on a pipe. Both shapes are in `contract/README.md`. The design and its trade-offs: `docs/design/stem-player.md`. The picture at the top is drawn by `docs/media/hero.sh` from four stem recordings.
 
 ### Known limits
 
 - Whether the media keys reach the daemon while Spotify plays has not been checked by hand yet: the pulse that takes them back was proved with a probe app against mediaremoted, not with the installed daemon and Spotify. If they do not, the keys go to Spotify, and following Spotify's own pause still stops the sound at once; but such a pause is one made in Spotify, so it holds and does not fill the buffer.
-- When another app (a browser video) takes the media keys, the daemon takes them back at most once every 30 s, so a second take inside that time leaves them with that app until stemmix or Spotify next starts playing. A Spotify that was paused when the daemon attached (at login or a switch-on) counts as paused by you: stemmix starts paused and does not start it. Switching off, Restart and Quit pause a Spotify that was filling behind a paused stemmix first, so it is not heard past where you paused. When Spotify ends its own queue, stemmix plays out what it has buffered and does not start Spotify again until you press play.
+- When another app (a browser video) takes the media keys, the daemon takes them back at most once every 30 s, so a second take inside that time leaves them with that app until stemmix or Spotify next starts playing. A Spotify that was paused when the daemon attached (at login or a switch-on) counts as paused by you: stemmix starts paused and does not start it. Switching off, Restart and Quit pause a Spotify that was filling behind a paused stemmix first, so it is not heard past where you paused. When Spotify ends its own queue, stemmix plays out what it has buffered, to the song's end and does not start Spotify again until you press play; once the buffer has played out, the menu shows Play and one press of play/pause starts Spotify.
 - The music keeps playing silently at zero working sessions; it is not paused.
 - Apple Music streamed (FairPlay) tracks and its track notifications were not verified here.
 - The music comes out of the Mac the daemon runs on. The Claude Code plugin counts sessions on that Mac only; the herdr plugin also counts the saved machines you list, with a second or two of lag for those.
