@@ -34,17 +34,20 @@ final class SeparatorClient {
     process.arguments = ["-I", "-B", script.path]
     process.standardInput = stdinPipe
     process.standardOutput = stdoutPipe
-    try? FileManager.default.createDirectory(at: Config.stateDir, withIntermediateDirectories: true)
-    if !FileManager.default.fileExists(atPath: Config.separatorLogFile.path) {
-      FileManager.default.createFile(atPath: Config.separatorLogFile.path, contents: nil)
+    var log: FileHandle?
+    if Log.usesStateFiles {
+      try? FileManager.default.createDirectory(at: Config.stateDir, withIntermediateDirectories: true)
+      if !FileManager.default.fileExists(atPath: Config.separatorLogFile.path) {
+        FileManager.default.createFile(atPath: Config.separatorLogFile.path, contents: nil)
+      }
+      log = try FileHandle(forWritingTo: Config.separatorLogFile)
+      log?.seekToEndOfFile()
     }
-    let log = try FileHandle(forWritingTo: Config.separatorLogFile)
-    log.seekToEndOfFile()
-    process.standardError = log
+    process.standardError = log ?? FileHandle.standardError
     toChild = stdinPipe.fileHandleForWriting.fileDescriptor
     fromChild = stdoutPipe.fileHandleForReading.fileDescriptor
     try process.run()
-    try? log.close()
+    try? log?.close()
 
     let (ready, _) = try readFrame(timeout: Config.separatorReadyTimeout, payloadInto: nil, capacity: 0)
     guard ready.ready == true, let names = ready.stems else { throw SeparatorError.failed("no ready frame") }

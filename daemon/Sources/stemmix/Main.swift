@@ -10,7 +10,9 @@ enum Main {
     case "--record": exit(runRecord(Array(arguments.dropFirst())))
     case "--control": exit(runControl(Array(arguments.dropFirst())))
     case "--simulate": exit(runSimulate(Array(arguments.dropFirst())))
-    default: Daemon().run()
+    default:
+      Log.useStateFiles()
+      Daemon().run()
     }
   }
 }
